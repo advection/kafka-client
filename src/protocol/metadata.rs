@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
-use error::Result;
-use codecs::{AsStrings, ToByte, FromByte};
+use crate::codecs::{AsStrings, FromByte, ToByte};
+use crate::error::Result;
 
 use super::{HeaderRequest, HeaderResponse};
 use super::{API_KEY_METADATA, API_VERSION};
@@ -16,14 +16,17 @@ impl<'a, T: AsRef<str>> MetadataRequest<'a, T> {
     pub fn new(correlation_id: i32, client_id: &'a str, topics: &'a [T]) -> MetadataRequest<'a, T> {
         MetadataRequest {
             header: HeaderRequest::new(API_KEY_METADATA, API_VERSION, correlation_id, client_id),
-            topics: topics,
+            topics,
         }
     }
 }
 
 impl<'a, T: AsRef<str> + 'a> ToByte for MetadataRequest<'a, T> {
     fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
-        try_multi!(self.header.encode(buffer), AsStrings(self.topics).encode(buffer))
+        try_multi!(
+            self.header.encode(buffer),
+            AsStrings(self.topics).encode(buffer)
+        )
     }
 }
 
@@ -77,7 +80,11 @@ impl FromByte for BrokerMetadata {
 
     #[allow(unused_must_use)]
     fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
-        try_multi!(self.node_id.decode(buffer), self.host.decode(buffer), self.port.decode(buffer))
+        try_multi!(
+            self.node_id.decode(buffer),
+            self.host.decode(buffer),
+            self.port.decode(buffer)
+        )
     }
 }
 

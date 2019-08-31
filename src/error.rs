@@ -3,11 +3,12 @@
 use std::io;
 
 #[cfg(feature = "security")]
+use openssl::error::ErrorStack;
+#[cfg(feature = "security")]
 use openssl::ssl::{self, Error as SslError};
 #[cfg(feature = "security")]
-use openssl::error::ErrorStack;
 
-/// The various errors this library can produce.
+// The various errors this library can produce.
 error_chain! {
     foreign_links {
         Io(io::Error) #[doc="Input/Output error while communicating with Kafka"];
@@ -202,8 +203,9 @@ impl<S> From<ssl::HandshakeError<S>> for Error {
     fn from(err: ssl::HandshakeError<S>) -> Error {
         match err {
             ssl::HandshakeError::SetupFailure(e) => From::from(e),
-            ssl::HandshakeError::Failure(s) |
-            ssl::HandshakeError::Interrupted(s) => from_sslerror_ref(s.error()).into(),
+            ssl::HandshakeError::Failure(s) | ssl::HandshakeError::Interrupted(s) => {
+                from_sslerror_ref(s.error()).into()
+            }
         }
     }
 }
@@ -211,28 +213,27 @@ impl<S> From<ssl::HandshakeError<S>> for Error {
 impl Clone for Error {
     fn clone(&self) -> Error {
         match self {
-            &Error(ErrorKind::Io(ref err), _) => ErrorKind::Io(clone_ioe(err)).into(),
+            Error(ErrorKind::Io(err), _) => ErrorKind::Io(clone_ioe(err)).into(),
             &Error(ErrorKind::Kafka(x), _) => ErrorKind::Kafka(x).into(),
             &Error(ErrorKind::TopicPartitionError(ref topic, partition, error_code), _) => {
                 ErrorKind::TopicPartitionError(topic.clone(), partition, error_code).into()
             }
             #[cfg(feature = "security")]
-            &Error(ErrorKind::Ssl(ref x), _) => from_sslerror_ref(x).into(),
+            Error(ErrorKind::Ssl(ref x), _) => from_sslerror_ref(x).into(),
             #[cfg(feature = "security")]
-            &Error(ErrorKind::SslHandshake(ref x), _) => ErrorKind::SslHandshake(x.clone()).into(),
-            &Error(ErrorKind::UnsupportedProtocol, _) => ErrorKind::UnsupportedProtocol.into(),
-            &Error(ErrorKind::UnsupportedCompression, _) => {
-                ErrorKind::UnsupportedCompression.into()
-            }
+            Error(ErrorKind::SslHandshake(ref x), _) => ErrorKind::SslHandshake(x.clone()).into(),
+            Error(ErrorKind::UnsupportedProtocol, _) => ErrorKind::UnsupportedProtocol.into(),
+            Error(ErrorKind::UnsupportedCompression, _) => ErrorKind::UnsupportedCompression.into(),
             #[cfg(feature = "snappy")]
-            &Error(ErrorKind::InvalidSnappy(ref err), _) => from_snap_error_ref(err).into(),
-            &Error(ErrorKind::UnexpectedEOF, _) => ErrorKind::UnexpectedEOF.into(),
-            &Error(ErrorKind::CodecError, _) => ErrorKind::CodecError.into(),
-            &Error(ErrorKind::StringDecodeError, _) => ErrorKind::StringDecodeError.into(),
-            &Error(ErrorKind::NoHostReachable, _) => ErrorKind::NoHostReachable.into(),
-            &Error(ErrorKind::NoTopicsAssigned, _) => ErrorKind::NoTopicsAssigned.into(),
-            &Error(ErrorKind::InvalidDuration, _) => ErrorKind::InvalidDuration.into(),
-            &Error(ErrorKind::Msg(ref msg), _) => ErrorKind::Msg(msg.clone()).into(),
+            Error(ErrorKind::InvalidSnappy(ref err), _) => from_snap_error_ref(err).into(),
+            Error(ErrorKind::UnexpectedEOF, _) => ErrorKind::UnexpectedEOF.into(),
+            Error(ErrorKind::CodecError, _) => ErrorKind::CodecError.into(),
+            Error(ErrorKind::StringDecodeError, _) => ErrorKind::StringDecodeError.into(),
+            Error(ErrorKind::NoHostReachable, _) => ErrorKind::NoHostReachable.into(),
+            Error(ErrorKind::NoTopicsAssigned, _) => ErrorKind::NoTopicsAssigned.into(),
+            Error(ErrorKind::InvalidDuration, _) => ErrorKind::InvalidDuration.into(),
+            Error(ErrorKind::Msg(ref msg), _) => ErrorKind::Msg(msg.clone()).into(),
+            Error(k, _) => ErrorKind::Msg(k.to_string()).into(), // XXX: Strange to have to add this, what is missing?
         }
     }
 }
@@ -240,12 +241,12 @@ impl Clone for Error {
 #[cfg(feature = "security")]
 fn from_sslerror_ref(err: &ssl::Error) -> ErrorKind {
     match err {
-        &SslError::ZeroReturn => ErrorKind::Ssl(SslError::ZeroReturn),
-        &SslError::WantRead(ref e) => ErrorKind::Ssl(SslError::WantRead(clone_ioe(e))),
-        &SslError::WantWrite(ref e) => ErrorKind::Ssl(SslError::WantWrite(clone_ioe(e))),
-        &SslError::WantX509Lookup => ErrorKind::Ssl(SslError::WantX509Lookup),
-        &SslError::Stream(ref e) => ErrorKind::Ssl(SslError::Stream(clone_ioe(e))),
-        &SslError::Ssl(ref es) => ErrorKind::Ssl(SslError::Ssl(es.clone())),
+        SslError::ZeroReturn => ErrorKind::Ssl(SslError::ZeroReturn),
+        SslError::WantRead(ref e) => ErrorKind::Ssl(SslError::WantRead(clone_ioe(e))),
+        SslError::WantWrite(ref e) => ErrorKind::Ssl(SslError::WantWrite(clone_ioe(e))),
+        SslError::WantX509Lookup => ErrorKind::Ssl(SslError::WantX509Lookup),
+        SslError::Stream(ref e) => ErrorKind::Ssl(SslError::Stream(clone_ioe(e))),
+        SslError::Ssl(ref es) => ErrorKind::Ssl(SslError::Ssl(es.clone())),
     }
 }
 
@@ -253,77 +254,54 @@ fn from_sslerror_ref(err: &ssl::Error) -> ErrorKind {
 fn from_snap_error_ref(err: &::snap::Error) -> ErrorKind {
     match err {
         &::snap::Error::TooBig { given, max } => {
-            ErrorKind::InvalidSnappy(::snap::Error::TooBig {
-                given: given,
-                max: max,
-            })
+            ErrorKind::InvalidSnappy(::snap::Error::TooBig { given, max })
         }
         &::snap::Error::BufferTooSmall { given, min } => {
-            ErrorKind::InvalidSnappy(::snap::Error::BufferTooSmall {
-                given: given,
-                min: min,
-            })
+            ErrorKind::InvalidSnappy(::snap::Error::BufferTooSmall { given, min })
         }
-        &::snap::Error::Empty => ErrorKind::InvalidSnappy(::snap::Error::Empty),
-        &::snap::Error::Header => ErrorKind::InvalidSnappy(::snap::Error::Header),
+        ::snap::Error::Empty => ErrorKind::InvalidSnappy(::snap::Error::Empty),
+        ::snap::Error::Header => ErrorKind::InvalidSnappy(::snap::Error::Header),
         &::snap::Error::HeaderMismatch {
             expected_len,
             got_len,
-        } => {
-            ErrorKind::InvalidSnappy(::snap::Error::HeaderMismatch {
-                expected_len: expected_len,
-                got_len: got_len,
-            })
-        }
+        } => ErrorKind::InvalidSnappy(::snap::Error::HeaderMismatch {
+            expected_len,
+            got_len,
+        }),
         &::snap::Error::Literal {
             len,
             src_len,
             dst_len,
-        } => {
-            ErrorKind::InvalidSnappy(::snap::Error::Literal {
-                len: len,
-                src_len: src_len,
-                dst_len: dst_len,
-            })
-        }
+        } => ErrorKind::InvalidSnappy(::snap::Error::Literal {
+            len,
+            src_len,
+            dst_len,
+        }),
         &::snap::Error::CopyRead { len, src_len } => {
-            ErrorKind::InvalidSnappy(::snap::Error::CopyRead {
-                len: len,
-                src_len: src_len,
-            })
+            ErrorKind::InvalidSnappy(::snap::Error::CopyRead { len, src_len })
         }
         &::snap::Error::CopyWrite { len, dst_len } => {
-            ErrorKind::InvalidSnappy(::snap::Error::CopyWrite {
-                len: len,
-                dst_len: dst_len,
-            })
+            ErrorKind::InvalidSnappy(::snap::Error::CopyWrite { len, dst_len })
         }
         &::snap::Error::Offset { offset, dst_pos } => {
-            ErrorKind::InvalidSnappy(::snap::Error::Offset {
-                offset: offset,
-                dst_pos: dst_pos,
-            })
+            ErrorKind::InvalidSnappy(::snap::Error::Offset { offset, dst_pos })
         }
         &::snap::Error::StreamHeader { byte } => {
-            ErrorKind::InvalidSnappy(::snap::Error::StreamHeader { byte: byte })
+            ErrorKind::InvalidSnappy(::snap::Error::StreamHeader { byte })
         }
-        &::snap::Error::StreamHeaderMismatch { ref bytes } => {
-            ErrorKind::InvalidSnappy(::snap::Error::StreamHeaderMismatch { bytes: bytes.clone() })
+        ::snap::Error::StreamHeaderMismatch { ref bytes } => {
+            ErrorKind::InvalidSnappy(::snap::Error::StreamHeaderMismatch {
+                bytes: bytes.clone(),
+            })
         }
         &::snap::Error::UnsupportedChunkType { byte } => {
-            ErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkType { byte: byte })
+            ErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkType { byte })
         }
         &::snap::Error::UnsupportedChunkLength { len, header } => {
-            ErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkLength {
-                len: len,
-                header: header,
-            })
+            ErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkLength { len, header })
         }
         &::snap::Error::Checksum { expected, got } => {
-            ErrorKind::InvalidSnappy(::snap::Error::Checksum {
-                expected: expected,
-                got: got,
-            })
+            ErrorKind::InvalidSnappy(::snap::Error::Checksum { expected, got })
         }
     }
 }

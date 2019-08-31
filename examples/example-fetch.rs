@@ -1,12 +1,11 @@
-extern crate kafka;
 extern crate env_logger;
 
-use kafka::client::{KafkaClient, FetchPartition};
+use kafka::client::{FetchPartition, KafkaClient};
 
 /// This program demonstrates the low level api for fetching messages.
 /// Please look at examles/consume.rs for an easier to use API.
 fn main() {
-    env_logger::init().unwrap();
+    env_logger::init();
 
     let broker = "localhost:9092";
     let topic = "my-topic";
@@ -15,12 +14,8 @@ fn main() {
 
     println!(
         "About to fetch messages at {} from: {} (partition {}, offset {}) ",
-        broker,
-        topic,
-        partition,
-        offset
+        broker, topic, partition, offset
     );
-
 
     let mut client = KafkaClient::new(vec![broker.to_owned()]);
     if let Err(e) = client.load_metadata_all() {
@@ -44,13 +39,13 @@ fn main() {
                 for t in resp.topics() {
                     for p in t.partitions() {
                         match p.data() {
-                            &Err(ref e) => {
+                            Err(ref e) => {
                                 println!("partition error: {}:{}: {}", t.topic(), p.partition(), e)
                             }
-                            &Ok(ref data) => {
+                            Ok(ref data) => {
                                 println!(
                                     "topic: {} / partition: {} / latest available message \
-                                          offset: {}",
+                                     offset: {}",
                                     t.topic(),
                                     p.partition(),
                                     data.highwatermark_offset()
@@ -58,7 +53,7 @@ fn main() {
                                 for msg in data.messages() {
                                     println!(
                                         "topic: {} / partition: {} / message.offset: {} / \
-                                              message.len: {}",
+                                         message.len: {}",
                                         t.topic(),
                                         p.partition(),
                                         msg.offset,

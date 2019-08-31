@@ -1,12 +1,12 @@
-use std::collections::hash_map::{HashMap, Entry, Keys};
+use std::collections::hash_map::{Entry, HashMap, Keys};
 use std::convert::AsRef;
 use std::slice;
 use std::u32;
 
-use error::Result;
-use protocol;
+use crate::error::Result;
+use crate::protocol;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ClientState {
     // ~ the last correlation used when communicating with kafka
     // (see `#next_correlation_id`)
@@ -81,7 +81,7 @@ impl BrokerRef {
         BrokerRef { _index: index }
     }
 
-    fn index(&self) -> usize {
+    fn index(self) -> usize {
         self._index as usize
     }
 
@@ -112,7 +112,9 @@ pub struct TopicPartitions {
 impl TopicPartitions {
     /// Creates a new partitions vector with all partitions leaderless
     fn new_with_partitions(n: usize) -> TopicPartitions {
-        TopicPartitions { partitions: (0..n).map(|_| TopicPartition::new()).collect() }
+        TopicPartitions {
+            partitions: (0..n).map(|_| TopicPartition::new()).collect(),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -152,7 +154,9 @@ pub struct TopicPartition {
 
 impl TopicPartition {
     fn new() -> TopicPartition {
-        TopicPartition { broker: BrokerRef::new(UNKNOWN_BROKER_INDEX) }
+        TopicPartition {
+            broker: BrokerRef::new(UNKNOWN_BROKER_INDEX),
+        }
     }
 
     pub fn broker<'a>(&self, state: &'a ClientState) -> Option<&'a Broker> {
@@ -196,15 +200,6 @@ impl<'a> Iterator for TopicNames<'a> {
 }
 
 impl ClientState {
-    pub fn new() -> Self {
-        ClientState {
-            correlation: 0,
-            brokers: Vec::new(),
-            topic_partitions: HashMap::new(),
-            group_coordinators: HashMap::new(),
-        }
-    }
-
     pub fn num_topics(&self) -> usize {
         self.topic_partitions.len()
     }
@@ -221,7 +216,9 @@ impl ClientState {
     }
 
     pub fn topic_names(&self) -> TopicNames {
-        TopicNames { iter: self.topic_partitions.keys() }
+        TopicNames {
+            iter: self.topic_partitions.keys(),
+        }
     }
 
     // exposed for the sake of the metadata module
@@ -283,7 +280,8 @@ impl ClientState {
                     ps
                 }
                 Entry::Vacant(e) => {
-                    &mut e.insert(TopicPartitions::new_with_partitions(t.partitions.len()))
+                    &mut e
+                        .insert(TopicPartitions::new_with_partitions(t.partitions.len()))
                         .partitions
                 }
             };
@@ -361,7 +359,10 @@ impl ClientState {
         group: &str,
         gc: &protocol::GroupCoordinatorResponse,
     ) -> &'a str {
-        debug!("set_group_coordinator: registering coordinator for '{}': {:?}", group, gc);
+        debug!(
+            "set_group_coordinator: registering coordinator for '{}': {:?}",
+            group, gc
+        );
 
         let group_host = format!("{}:{}", gc.host, gc.port);
         // ~ try to find an already existing broker
@@ -371,10 +372,8 @@ impl ClientState {
                 if group_host != broker.host {
                     warn!(
                         "set_group_coordinator: coord_host({}) != broker_host({}) for \
-                           broker_id({})!",
-                        group_host,
-                        broker.host,
-                        broker.node_id
+                         broker_id({})!",
+                        group_host, broker.host, broker.node_id
                     );
                 }
                 broker_ref._index = i;
@@ -402,14 +401,14 @@ impl ClientState {
 #[cfg(test)]
 mod tests {
     use super::ClientState;
-    use protocol;
-    use protocol::metadata as md;
+    use crate::protocol;
+    use crate::protocol::metadata as md;
 
     fn new_partition(id: i32, leader: i32) -> md::PartitionMetadata {
         md::PartitionMetadata {
             error: 0,
-            id: id,
-            leader: leader,
+            id,
+            leader,
             replicas: vec![],
             isr: vec![],
         }
@@ -473,7 +472,6 @@ mod tests {
         }
     }
 
-
     fn assert_partitions(
         state: &ClientState,
         topic: &str,
@@ -492,8 +490,7 @@ mod tests {
                     assert_eq!(broker.map(|b| b.1), state.find_broker(topic, id));
                     (id, broker)
                 })
-                .collect::<Vec<_>>()
-                [..]
+                .collect::<Vec<_>>()[..]
         );
     }
 
@@ -564,19 +561,17 @@ mod tests {
                 },
             ],
             // metadata for topic "tee-two" only
-            topics: vec![
-                md::TopicMetadata {
-                    error: 0,
-                    topic: "tee-two".to_owned(),
-                    partitions: vec![
-                        new_partition(0, 10),
-                        new_partition(1, 10),
-                        new_partition(2, 50),
-                        new_partition(3, -1),
-                        new_partition(4, 30),
-                    ],
-                },
-            ],
+            topics: vec![md::TopicMetadata {
+                error: 0,
+                topic: "tee-two".to_owned(),
+                partitions: vec![
+                    new_partition(0, 10),
+                    new_partition(1, 10),
+                    new_partition(2, 50),
+                    new_partition(3, -1),
+                    new_partition(4, 30),
+                ],
+            }],
         }
     }
 
@@ -626,7 +621,7 @@ mod tests {
 
     #[test]
     fn test_loading_metadata() {
-        let mut state = ClientState::new();
+        let mut state = ClientState::default();
         // Test loading metadata into a new, empty client state.
         state.update_metadata(metadata_response_initial()).unwrap();
         assert_initial_metadata_load(&state);

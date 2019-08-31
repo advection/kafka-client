@@ -1,9 +1,9 @@
 use std::str;
 
+use crate::error::{ErrorKind, Result};
 use byteorder::{BigEndian, ByteOrder};
-use error::{ErrorKind, Result};
 
-static EMPTY_STR: &'static str = "";
+static EMPTY_STR: &str = "";
 
 pub struct ZReader<'a> {
     data: &'a [u8],
@@ -11,12 +11,14 @@ pub struct ZReader<'a> {
 
 // ~ a helper macro to hide away the used byte order
 macro_rules! dec {
-    ($method:ident, $src:expr) => { BigEndian::$method($src) }
+    ($method:ident, $src:expr) => {
+        BigEndian::$method($src)
+    };
 }
 
 impl<'a> ZReader<'a> {
     pub fn new(data: &[u8]) -> ZReader {
-        ZReader { data: data }
+        ZReader { data }
     }
 
     /// ~ Consumes `n_bytes` from the underlying slice while returning
@@ -64,12 +66,12 @@ impl<'a> ZReader<'a> {
     /// Reads a string as defined by the Kafka Protocol. The 'null'
     /// string is delivered as the empty string.
     pub fn read_str<'b>(&'b mut self) -> Result<&'a str> {
-        let len = try!(self.read_i16());
+        let len = self.read_i16()?;
         if len <= 0 {
             Ok(EMPTY_STR)
         } else {
             // alternatively: str::from_utf8_unchecked(..)
-            match str::from_utf8(try!(self.read(len as usize))) {
+            match str::from_utf8(self.read(len as usize)?) {
                 Ok(s) => Ok(s),
                 Err(_) => bail!(ErrorKind::StringDecodeError),
             }
@@ -79,7 +81,7 @@ impl<'a> ZReader<'a> {
     /// Reads 'bytes' as defined by the Kafka Protocol. The 'null'
     /// bytes are delivered as an empty slice.
     pub fn read_bytes<'b>(&'b mut self) -> Result<&'a [u8]> {
-        let len = try!(self.read_i32());
+        let len = self.read_i32()?;
         if len <= 0 {
             Ok(&self.data[0..0])
         } else {
@@ -91,7 +93,7 @@ impl<'a> ZReader<'a> {
     /// Protocol. The size of 'null' array will be returned as the
     /// size an array of an empty array.
     pub fn read_array_len(&mut self) -> Result<usize> {
-        let len = try!(self.read_i32());
+        let len = self.read_i32()?;
         Ok(if len < 0 { 0 } else { len as usize })
     }
 }
@@ -155,7 +157,7 @@ fn test_read_i16() {
 fn test_read_i32() {
     let data = &[1, 2, 3, 4];
     let mut r = ZReader::new(data);
-    assert_eq!(16909060, r.read_i32().unwrap());
+    assert_eq!(16_909_060, r.read_i32().unwrap());
     assert!(r.read_i32().is_err());
 
     let data = &[0xff, 0xff, 0xff, 0xfd];
@@ -168,7 +170,7 @@ fn test_read_i32() {
 fn test_read_i64() {
     let data = &[1, 2, 3, 4, 5, 6, 7, 8];
     let mut r = ZReader::new(data);
-    assert_eq!(72623859790382856, r.read_i64().unwrap());
+    assert_eq!(72_623_859_790_382_856, r.read_i64().unwrap());
     assert!(r.read_i64().is_err());
 
     let data = &[0, 0, 0, 0, 0, 0, 0, 1];
@@ -185,22 +187,7 @@ fn test_read_i64() {
 #[test]
 fn test_read_str() {
     let data = &[
-        0u8,
-        5,
-        b'h',
-        b'e',
-        b'l',
-        b'l',
-        b'o',
-        0u8,
-        7,
-        b',',
-        b' ',
-        b'w',
-        b'o',
-        b'r',
-        b'l',
-        b'd',
+        0u8, 5, b'h', b'e', b'l', b'l', b'o', 0u8, 7, b',', b' ', b'w', b'o', b'r', b'l', b'd',
         255, /* a "null" string */
         28,
     ]; // some byte

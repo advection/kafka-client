@@ -2,36 +2,37 @@ use std::io::{Read, Write};
 use std::mem;
 use std::time::Duration;
 
-use codecs::{ToByte, FromByte};
+use crate::codecs::{FromByte, ToByte};
+use crate::error::{Error, ErrorKind, KafkaCode, Result};
 use crc::crc32;
-use error::{Error, ErrorKind, KafkaCode, Result};
 
 /// Macro to return Result<()> from multiple statements
 macro_rules! try_multi {
     ($($expr:expr),*) => ({
-        $(try!($expr);)*;
+        $(($expr)?;)*
         Ok(())
     })
 }
 
-pub mod produce;
-pub mod offset;
-pub mod metadata;
 pub mod consumer;
+pub mod metadata;
+pub mod offset;
+pub mod produce;
 
-mod zreader;
 pub mod fetch;
 
 // ~ convenient re-exports for request/response types defined in the
 // submodules
+pub use self::consumer::{
+    GroupCoordinatorRequest, GroupCoordinatorResponse, OffsetCommitRequest, OffsetCommitResponse,
+    OffsetCommitVersion, OffsetFetchRequest, OffsetFetchResponse, OffsetFetchVersion,
+};
 pub use self::fetch::FetchRequest;
-pub use self::produce::{ProduceRequest, ProduceResponse};
-pub use self::offset::{OffsetRequest, OffsetResponse};
 pub use self::metadata::{MetadataRequest, MetadataResponse};
-pub use self::consumer::{GroupCoordinatorRequest, GroupCoordinatorResponse, OffsetFetchVersion,
-                         OffsetFetchRequest, OffsetFetchResponse, OffsetCommitVersion,
-                         OffsetCommitRequest, OffsetCommitResponse};
+pub use self::offset::{OffsetRequest, OffsetResponse};
+pub use self::produce::{ProduceRequest, ProduceResponse};
 
+mod zreader;
 // --------------------------------------------------------------------
 
 const API_KEY_PRODUCE: i16 = 0;
@@ -75,8 +76,12 @@ fn test_kafka_code_from_protocol() {
 
     macro_rules! assert_kafka_code {
         ($kcode:path, $n:expr) => {
-            assert!(if let Some($kcode) = KafkaCode::from_protocol($n) { true } else { false })
-        }
+            assert!(if let Some($kcode) = KafkaCode::from_protocol($n) {
+                true
+            } else {
+                false
+            })
+        };
     };
 
     assert!(if let None = KafkaCode::from_protocol(0) {
@@ -84,9 +89,18 @@ fn test_kafka_code_from_protocol() {
     } else {
         false
     });
-    assert_kafka_code!(KafkaCode::OffsetOutOfRange, KafkaCode::OffsetOutOfRange as i16);
-    assert_kafka_code!(KafkaCode::IllegalGeneration, KafkaCode::IllegalGeneration as i16);
-    assert_kafka_code!(KafkaCode::UnsupportedVersion, KafkaCode::UnsupportedVersion as i16);
+    assert_kafka_code!(
+        KafkaCode::OffsetOutOfRange,
+        KafkaCode::OffsetOutOfRange as i16
+    );
+    assert_kafka_code!(
+        KafkaCode::IllegalGeneration,
+        KafkaCode::IllegalGeneration as i16
+    );
+    assert_kafka_code!(
+        KafkaCode::UnsupportedVersion,
+        KafkaCode::UnsupportedVersion as i16
+    );
     assert_kafka_code!(KafkaCode::Unknown, KafkaCode::Unknown as i16);
     // ~ test some un mapped non-zero codes; should all map to "unknown"
     assert_kafka_code!(KafkaCode::Unknown, i16::MAX);
@@ -118,12 +132,12 @@ impl<'a> HeaderRequest<'a> {
         api_version: i16,
         correlation_id: i32,
         client_id: &'a str,
-    ) -> HeaderRequest {
+    ) -> HeaderRequest<'_> {
         HeaderRequest {
-            api_key: api_key,
-            api_version: api_version,
-            correlation_id: correlation_id,
-            client_id: client_id,
+            api_key,
+            api_version,
+            correlation_id,
+            client_id,
         }
     }
 }
@@ -167,10 +181,10 @@ pub fn to_crc(data: &[u8]) -> u32 {
 /// i32 as often required in the kafka protocol.
 pub fn to_millis_i32(d: Duration) -> Result<i32> {
     use std::i32;
-    let m = d.as_secs().saturating_mul(1_000).saturating_add(
-        (d.subsec_nanos() / 1_000_000) as
-            u64,
-    );
+    let m = d
+        .as_secs()
+        .saturating_mul(1_000)
+        .saturating_add(u64::from(d.subsec_millis()));
     if m > i32::MAX as u64 {
         bail!(ErrorKind::InvalidDuration)
     } else {
