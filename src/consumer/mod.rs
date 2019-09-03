@@ -40,7 +40,7 @@
 //! of the consumed topics. Individual messages are embedded in the
 //! retrieved messagesets and can be processed using the `messages()`
 //! iterator.  Due to this embedding, individual messsages's lifetime
-//! is bound to the `MessageSet` they are part of. Typically, client
+//! is bound to the `MessageSet` they are part of. Typically, client // zlb: interesting choice here to return a message set and not the iterator or sequence itself
 //! code access the raw data/bytes, parses it into custom data types
 //! and passes that for further processing within the application.
 //! Altough unconvenient, this helps in reducing the number of
@@ -63,16 +63,17 @@
 
 use std::collections::hash_map::{Entry, HashMap};
 use std::slice;
+use failure::Error;
 
 use crate::client::fetch;
 use crate::client::{CommitOffset, FetchPartition, KafkaClient};
-use crate::error::{ErrorKind, KafkaCode, Result};
 
 // public re-exports
 pub use self::builder::Builder;
 pub use crate::client::fetch::Message;
 pub use crate::client::FetchOffset;
 pub use crate::client::GroupOffsetStorage;
+use crate::error::{KafkaCode, KafkaErrorKind};
 
 mod assignment;
 mod builder;
@@ -153,7 +154,7 @@ impl Consumer {
     }
 
     /// Polls for the next available message data.
-    pub fn poll(&mut self) -> Result<MessageSets> {
+    pub fn poll(&mut self) -> Result<MessageSets, Error> {
         let (n, resps) = self.fetch_messages();
         self.process_fetch_responses(n, resps?)
     }
@@ -171,7 +172,7 @@ impl Consumer {
     }
 
     // ~ returns (number partitions queried, fecth responses)
-    fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>>) {
+    fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>, Error>) {
         // ~ if there's a retry partition ... fetch messages just for
         // that one. Otherwise try to fetch messages for all assigned
         // partitions.
@@ -179,12 +180,7 @@ impl Consumer {
             Some(tp) => {
                 let s = match self.state.fetch_offsets.get(&tp) {
                     Some(fstate) => fstate,
-                    None => {
-                        return (
-                            1,
-                            Err(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into()),
-                        )
-                    }
+                    None => KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)
                 };
                 let topic = self.state.topic_name(tp.topic_ref);
                 debug!(
@@ -228,7 +224,7 @@ impl Consumer {
         &mut self,
         num_partitions_queried: u32,
         resps: Vec<fetch::Response>,
-    ) -> Result<MessageSets> {
+    ) -> Result<MessageSets, Error> {
         let single_partition_consumer = self.single_partition_consumer();
         let mut empty = true;
         let retry_partitions = &mut self.state.retry_partitions;
@@ -323,7 +319,7 @@ impl Consumer {
                                 // fetch size ... this is will fail
                                 // forever ... signal the problem to
                                 // the user
-                                bail!(ErrorKind::Kafka(KafkaCode::MessageSizeTooLarge));
+                                bail!(KafkaErrorKind::Kafka(KafkaCode::MessageSizeTooLarge));
                             }
                             // ~ if this consumer is subscribed to one
                             // partition only, there's no need to push
@@ -377,9 +373,9 @@ impl Consumer {
     ///
     /// Results in an error if the specified topic partition is not
     /// being consumed by this consumer.
-    pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<()> {
+    pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<(), Error> {
         let topic_ref = match self.state.topic_ref(topic) {
-            None => bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
+            None => bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
             Some(topic_ref) => topic_ref,
         };
         let tp = state::TopicPartition {
@@ -407,7 +403,7 @@ impl Consumer {
     /// A convience method to mark the given message set consumed as a
     /// whole by the caller. This is equivalent to marking the last
     /// message of the given set as consumed.
-    pub fn consume_messageset<'a>(&mut self, msgs: MessageSet<'a>) -> Result<()> {
+    pub fn consume_messageset<'a>(&mut self, msgs: MessageSet<'a>) -> Result<(), Error> {
         if !msgs.messages.is_empty() {
             self.consume_message(
                 msgs.topic,
@@ -424,7 +420,7 @@ impl Consumer {
     ///
     /// See also `Consumer::consume_message` and
     /// `Consumer::consume_messageset`.
-    pub fn commit_consumed(&mut self) -> Result<()> {
+    pub fn commit_consumed(&mut self) -> Result<(), Error> {
         if self.config.group.is_empty() {
             debug!("commit_consumed: ignoring commit request since no group defined");
             return Ok(());

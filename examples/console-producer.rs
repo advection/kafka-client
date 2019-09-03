@@ -37,7 +37,7 @@ fn main() {
     }
 }
 
-fn produce(cfg: &Config) -> Result<()> {
+fn produce(cfg: &Config) -> Result<(), Error> {
     let mut client = KafkaClient::new(cfg.brokers.clone());
     client.set_client_id("kafka-rust-console-producer".into());
     client.load_metadata_all()?;
@@ -59,7 +59,7 @@ fn produce(cfg: &Config) -> Result<()> {
     }
 }
 
-fn produce_impl(src: &mut impl BufRead, client: KafkaClient, cfg: &Config) -> Result<()> {
+fn produce_impl(src: &mut impl BufRead, client: KafkaClient, cfg: &Config) -> Result<(), Error> {
     let mut producer = Producer::from_client(client)
         .with_ack_timeout(cfg.ack_timeout)
         .with_required_acks(cfg.required_acks)
@@ -98,7 +98,7 @@ fn produce_impl_nobatch(
     producer: &mut Producer,
     src: &mut impl BufRead,
     cfg: &Config,
-) -> Result<()> {
+) -> Result<(), Error> {
     let mut stderr = stderr();
     let mut rec = Record::from_value(&cfg.topic, Trimmed(String::new()));
     loop {
@@ -123,7 +123,7 @@ fn produce_impl_inbatches(
     producer: &mut Producer,
     src: &mut impl BufRead,
     cfg: &Config,
-) -> Result<()> {
+) -> Result<(), Error> {
     assert!(cfg.batch_size > 1);
 
     // ~ a buffer of prepared records to be send in a batch to Kafka
@@ -159,13 +159,13 @@ fn produce_impl_inbatches(
     Ok(())
 }
 
-fn send_batch(producer: &mut Producer, batch: &[Record<(), Trimmed>]) -> Result<()> {
+fn send_batch(producer: &mut Producer, batch: &[Record<(), Trimmed>]) -> Result<(), Error> {
     let rs = producer.send_all(batch)?;
 
     for r in rs {
         for tpc in r.partition_confirms {
             if let Err(code) = tpc.offset {
-                bail!(ErrorKind::Kafka(kafka::error::ErrorKind::Kafka(code)));
+                bail!(KafkaError::Kafka(kafka::error::KafkaError::Kafka(code)));
             }
         }
     }
@@ -177,7 +177,7 @@ fn send_batch(producer: &mut Producer, batch: &[Record<(), Trimmed>]) -> Result<
 
 error_chain! {
     links {
-        Kafka(kafka::error::Error, kafka::error::ErrorKind);
+        Kafka(kafka::error::Error, kafka::error::KafkaError);
     }
     foreign_links {
         Io(io::Error);
@@ -199,7 +199,7 @@ struct Config {
 }
 
 impl Config {
-    fn from_cmdline() -> Result<Config> {
+    fn from_cmdline() -> Result<Config, Error> {
         let args: Vec<String> = env::args().collect();
         let mut opts = getopts::Options::new();
         opts.optflag("h", "help", "Print this help screen");
@@ -260,9 +260,9 @@ impl Config {
             },
             required_acks: match m.opt_str("required-acks") {
                 None => RequiredAcks::One,
-                Some(ref s) if s.eq_ignore_ascii_case("none") => RequiredAcks::None,
-                Some(ref s) if s.eq_ignore_ascii_case("one") => RequiredAcks::One,
-                Some(ref s) if s.eq_ignore_ascii_case("all") => RequiredAcks::All,
+                Some(ref s) if s.eq_ignore_ascii_case("none") || s == 0 => RequiredAcks::None,
+                Some(ref s) if s.eq_ignore_ascii_case("one") || s == 1 => RequiredAcks::One,
+                Some(ref s) if s.eq_ignore_ascii_case("all") || s == -1 => RequiredAcks::All,
                 Some(s) => bail!(format!("Unknown --required-acks argument: {}", s)),
             },
             batch_size: to_number(m.opt_str("batch-size"), 1)?,
@@ -278,7 +278,7 @@ impl Config {
     }
 }
 
-fn to_number<N: FromStr>(s: Option<String>, _default: N) -> Result<N> {
+fn to_number<N: FromStr>(s: Option<String>, _default: N) -> Result<N, Error> {
     match s {
         None => Ok(_default),
         Some(s) => match s.parse::<N>() {

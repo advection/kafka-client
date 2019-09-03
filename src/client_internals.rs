@@ -3,7 +3,7 @@
 
 use super::client::{ProduceConfirm, ProduceMessage};
 
-use crate::error::Result;
+use crate::failure::Error;
 
 pub trait KafkaClientInternals {
     fn internal_produce_messages<'a, 'b, I, J>(
@@ -11,7 +11,7 @@ pub trait KafkaClientInternals {
         required_acks: i16,
         ack_timeout: i32,
         messages: I,
-    ) -> Result<Vec<ProduceConfirm>>
+    ) -> Result<Vec<ProduceConfirm>, Error>
     where
         J: AsRef<ProduceMessage<'a, 'b>>,
         I: IntoIterator<Item = J>;

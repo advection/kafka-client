@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
 use crate::codecs::{AsStrings, FromByte, ToByte};
-use crate::error::Result;
+use crate::failure::Error;
 
 use super::{HeaderRequest, HeaderResponse};
 use super::{API_KEY_METADATA, API_VERSION};
@@ -22,7 +22,7 @@ impl<'a, T: AsRef<str>> MetadataRequest<'a, T> {
 }
 
 impl<'a, T: AsRef<str> + 'a> ToByte for MetadataRequest<'a, T> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
         try_multi!(
             self.header.encode(buffer),
             AsStrings(self.topics).encode(buffer)
@@ -66,7 +66,7 @@ impl FromByte for MetadataResponse {
     type R = MetadataResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         try_multi!(
             self.header.decode(buffer),
             self.brokers.decode(buffer),
@@ -79,7 +79,7 @@ impl FromByte for BrokerMetadata {
     type R = BrokerMetadata;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         try_multi!(
             self.node_id.decode(buffer),
             self.host.decode(buffer),
@@ -92,7 +92,7 @@ impl FromByte for TopicMetadata {
     type R = TopicMetadata;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         try_multi!(
             self.error.decode(buffer),
             self.topic.decode(buffer),
@@ -105,7 +105,7 @@ impl FromByte for PartitionMetadata {
     type R = PartitionMetadata;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         try_multi!(
             self.error.decode(buffer),
             self.id.decode(buffer),

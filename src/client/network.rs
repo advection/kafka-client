@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "security")]
 use openssl::ssl::SslConnector;
 
-use crate::error::Result;
+use failure::Error;
+use crate::error::KafkaErrorKind;
 
 // --------------------------------------------------------------------
 
@@ -92,7 +93,7 @@ pub struct Config {
 
 impl Config {
     #[cfg(not(feature = "security"))]
-    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection> {
+    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, Error> {
         KafkaConnection::new(id, host, self.rw_timeout).map(|c| {
             debug!("Established: {:?}", c);
             c
@@ -100,7 +101,7 @@ impl Config {
     }
 
     #[cfg(feature = "security")]
-    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection> {
+    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, Error> {
         KafkaConnection::new(
             id,
             host,
@@ -183,7 +184,7 @@ impl Connections {
         self.config.idle_timeout
     }
 
-    pub fn get_conn<'a>(&'a mut self, host: &str, now: Instant) -> Result<&'a mut KafkaConnection> {
+    pub fn get_conn<'a>(&'a mut self, host: &str, now: Instant) -> Result<&'a mut KafkaConnection, Error> {
         if let Some(conn) = self.conns.get_mut(host) {
             if now.duration_since(conn.last_checkout) >= self.config.idle_timeout {
                 debug!("Idle timeout reached: {:?}", conn.item);
@@ -194,7 +195,7 @@ impl Connections {
             conn.last_checkout = now;
             let kconn: &mut KafkaConnection = &mut conn.item;
             // ~ decouple the lifetimes to make the borrowck happy;
-            // this is safe since we're immediatelly returning the
+            // this is safe since we're immediately returning the
             // reference and the rest of the code in this method is
             // not affected
             return Ok(unsafe { mem::transmute(kconn) });
@@ -257,6 +258,7 @@ mod openssled {
     use std::io::{self, Read, Write};
     use std::net::{Shutdown, TcpStream};
     use std::time::Duration;
+    use failure::Error;
 
     use super::IsSecured;
 
@@ -283,7 +285,7 @@ mod openssled {
         }
 
         pub fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-            self.get_ref().set_read_timeout(dur)
+            self.get_ref().set_read_timeout(dur).map(Ok(()))
         }
 
         pub fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
@@ -306,7 +308,8 @@ mod openssled {
 
     impl Write for KafkaStream {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            match *self {
+            match *self { // zlb: this seems funky, why does it match on a reference to itself?
+                // is it because they are different underlying types? ohhh, it doesn't wanna lose the info
                 KafkaStream::Plain(ref mut s) => s.write(buf),
                 KafkaStream::Ssl(ref mut s) => s.write(buf),
             }
@@ -344,19 +347,19 @@ impl fmt::Debug for KafkaConnection {
 }
 
 impl KafkaConnection {
-    pub fn send(&mut self, msg: &[u8]) -> Result<usize> {
+    pub fn send(&mut self, msg: &[u8]) -> Result<usize, Error> {
         let r = self.stream.write(&msg[..]).map_err(From::from);
         trace!("Sent {} bytes to: {:?} => {:?}", msg.len(), self, r);
         r
     }
 
-    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         let r = (&mut self.stream).read_exact(buf).map_err(From::from);
         trace!("Read {} bytes from: {:?} => {:?}", buf.len(), self, r);
         r
     }
 
-    pub fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>> {
+    pub fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, Error> {
         let size: usize = size as usize;
         let mut buffer: Vec<u8> = Vec::with_capacity(size);
         // this is safe actually: we are setting the len to the
@@ -368,7 +371,7 @@ impl KafkaConnection {
         Ok(buffer)
     }
 
-    fn shutdown(&mut self) -> Result<()> {
+    fn shutdown(&mut self) -> Result<(), Error> {
         let r = self.stream.shutdown(Shutdown::Both);
         debug!("Shut down: {:?} => {:?}", self, r);
         r.map_err(From::from)
@@ -379,7 +382,7 @@ impl KafkaConnection {
         id: u32,
         host: &str,
         rw_timeout: Option<Duration>,
-    ) -> Result<KafkaConnection> {
+    ) -> Result<KafkaConnection, Error> {
         stream.set_read_timeout(rw_timeout)?;
         stream.set_write_timeout(rw_timeout)?;
         Ok(KafkaConnection {
@@ -390,7 +393,7 @@ impl KafkaConnection {
     }
 
     #[cfg(not(feature = "security"))]
-    fn new(id: u32, host: &str, rw_timeout: Option<Duration>) -> Result<KafkaConnection> {
+    fn new(id: u32, host: &str, rw_timeout: Option<Duration>) -> Result<KafkaConnection, Error> {
         KafkaConnection::from_stream(TcpStream::connect((*host).parse())?, id, host, rw_timeout)
     }
 
@@ -400,7 +403,7 @@ impl KafkaConnection {
         host: &str,
         rw_timeout: Option<Duration>,
         security: Option<(SslConnector, bool)>,
-    ) -> Result<KafkaConnection> {
+    ) -> Result<KafkaConnection, Error> {
         let stream = TcpStream::connect(host)?;
         let stream = match security {
             Some((connector, verify_hostname)) => {

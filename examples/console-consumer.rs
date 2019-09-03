@@ -3,11 +3,27 @@ extern crate getopts;
 #[macro_use]
 extern crate error_chain;
 
+//#[macro_use] extern crate failure;
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use failure::Error;
+
+// This is a new error type that you've created. It represents the ways a
+// toolchain could be invalid.
+//
+// The custom derive for Fail derives an impl of both Fail and Display.
+// We don't do any other magic like creating new types.
+
+
 use std::io::{self, Write};
 use std::time::Duration;
 use std::{env, process};
 
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+use getopts::Matches;
 
 /// This is a very simple command line application reading from a
 /// specific kafka topic and dumping the messages to standard output.
@@ -27,7 +43,7 @@ fn main() {
     }
 }
 
-fn process(cfg: Config) -> Result<()> {
+fn process(cfg: Config) -> Result<(), Error> {
     let mut c = {
         let mut cb = Consumer::from_hosts(cfg.brokers)
             .with_group(cfg.group)
@@ -67,18 +83,9 @@ fn process(cfg: Config) -> Result<()> {
             c.commit_consumed()?;
         }
     }
+    Ok(())
 }
 
-// --------------------------------------------------------------------
-error_chain! {
-    foreign_links {
-        Kafka(kafka::error::Error);
-        Io(io::Error);
-        Opt(getopts::Fail);
-    }
-}
-
-// --------------------------------------------------------------------
 
 struct Config {
     brokers: Vec<String>,
@@ -89,8 +96,24 @@ struct Config {
     fallback_offset: FetchOffset,
 }
 
+fn required_list(m: Matches, opt: &str) -> Result<Vec<String, Error>, Error> {
+    let xs: Vec<String> = match m.opt_str(opt) {
+        None => bail!(format!("Required option --{} missing", opt)),
+        Some(s) => s
+            .split(',')
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    };
+    if xs.is_empty() {
+        bail!(format!("Invalid --{} specified!", opt));
+    }
+    Ok(xs)
+}
+
+
 impl Config {
-    fn from_cmdline() -> Result<Config> {
+    fn from_cmdline() -> Result<Config, Error> {
         let args: Vec<_> = env::args().collect();
         let mut opts = getopts::Options::new();
         opts.optflag("h", "help", "Print this help screen");
@@ -124,26 +147,8 @@ impl Config {
             bail!(opts.usage(&brief));
         }
 
-        macro_rules! required_list {
-            ($name:expr) => {{
-                let opt = $name;
-                let xs: Vec<_> = match m.opt_str(opt) {
-                    None => bail!(format!("Required option --{} missing", opt)),
-                    Some(s) => s
-                        .split(',')
-                        .map(|s| s.trim().to_owned())
-                        .filter(|s| !s.is_empty())
-                        .collect(),
-                };
-                if xs.is_empty() {
-                    bail!(format!("Invalid --{} specified!", opt));
-                }
-                xs
-            }};
-        };
-
-        let brokers = required_list!("brokers");
-        let topics = required_list!("topics");
+        let brokers = required_list(m, "brokers")?;
+        let topics = required_list(m, "topics")?;
 
         let mut offset_storage = GroupOffsetStorage::Zookeeper;
         if let Some(s) = m.opt_str("storage") {

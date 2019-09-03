@@ -38,7 +38,7 @@ fn main() {
     }
 }
 
-fn run(cfg: Config) -> Result<()> {
+fn run(cfg: Config) -> Result<(), Error> {
     let mut client = KafkaClient::new(cfg.brokers.clone());
     client.set_group_offset_storage(cfg.offset_storage);
     client.load_metadata_all()?;
@@ -119,7 +119,7 @@ impl State {
         client: &mut KafkaClient,
         topic: &str,
         group: &str,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         // ~ get the latest topic offsets
         let latests = client.fetch_topic_offsets(topic, FetchOffset::Latest)?;
 
@@ -192,7 +192,7 @@ impl<W: Write> Printer<W> {
         }
     }
 
-    fn print_head(&mut self, num_partitions: usize) -> Result<()> {
+    fn print_head(&mut self, num_partitions: usize) -> Result<(), Error> {
         self.out_buf.clear();
         {
             // ~ format
@@ -228,7 +228,7 @@ impl<W: Write> Printer<W> {
         }
     }
 
-    fn print_offsets(&mut self, time: &time::Tm, partitions: &[Partition]) -> Result<()> {
+    fn print_offsets(&mut self, time: &time::Tm, partitions: &[Partition]) -> Result<(), Error> {
         self.out_buf.clear();
         {
             // ~ format
@@ -308,7 +308,7 @@ struct Config {
 }
 
 impl Config {
-    fn from_cmdline() -> Result<Config> {
+    fn from_cmdline() -> Result<Config, Error> {
         let args: Vec<String> = env::args().collect();
         let mut opts = getopts::Options::new();
         opts.optflag("h", "help", "Print this help screen");

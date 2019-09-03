@@ -18,7 +18,8 @@ use crate::compression::gzip;
 #[cfg(feature = "snappy")]
 use crate::compression::snappy::SnappyReader;
 use crate::compression::Compression;
-use crate::error::{Error, ErrorKind, KafkaCode, Result};
+use crate::error::{KafkaCode, KafkaErrorKind };
+use crate::failure::Error;
 
 pub type PartitionHasher = BuildHasherDefault<FnvHasher>;
 
@@ -96,7 +97,7 @@ impl PartitionFetchRequest {
 }
 
 impl<'a, 'b> ToByte for FetchRequest<'a, 'b> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
         self.header.encode(buffer)?;
         self.replica.encode(buffer)?;
         self.max_wait_time.encode(buffer)?;
@@ -111,7 +112,7 @@ impl<'a, 'b> ToByte for FetchRequest<'a, 'b> {
 }
 
 impl TopicPartitionFetchRequest {
-    fn encode<W: Write>(&self, topic: &str, buffer: &mut W) -> Result<()> {
+    fn encode<W: Write>(&self, topic: &str, buffer: &mut W) -> Result<(), Error> {
         topic.encode(buffer)?;
         // encode the hashmap as a vector
         (self.partitions.len() as i32).encode(buffer)?;
@@ -123,7 +124,7 @@ impl TopicPartitionFetchRequest {
 }
 
 impl PartitionFetchRequest {
-    fn encode<T: Write>(&self, partition: i32, buffer: &mut T) -> Result<()> {
+    fn encode<T: Write>(&self, partition: i32, buffer: &mut T) -> Result<(), Error> {
         try_multi!(
             partition.encode(buffer),
             self.offset.encode(buffer),
@@ -145,7 +146,7 @@ where
 
 impl<'a, 'b, 'c> super::ResponseParser for ResponseParser<'a, 'b, 'c> {
     type T = Response;
-    fn parse(&self, response: Vec<u8>) -> Result<Self::T> {
+    fn parse(&self, response: Vec<u8>) -> Result<Self::T, Error> {
         Response::from_vec(response, self.requests, self.validate_crc)
     }
 }
@@ -168,6 +169,9 @@ macro_rules! array_of {
 /// partitions.
 #[derive(Debug)]
 pub struct Response {
+    // yeah I'm surprised to see the data stored just as a Vec of bytes
+    // might make sense to have some genuine objects that the bytes are parsed in to
+
     // used to "own" the data all other references of this struct
     // point to.
     #[allow(dead_code)]
@@ -175,6 +179,9 @@ pub struct Response {
 
     correlation_id: i32,
 
+    // zlb: is this worth keeping? I guess the topics shouldn't really ever change.
+    // they can theoretically be deleted but it seems like it might be sensible to
+    //
     // ~ Static is used here to get around the fact that we don't want
     // Response have to a lifetime parameter as well.  The field is
     // exposed only through an accessor which binds the exposed
@@ -189,7 +196,7 @@ impl Response {
         response: Vec<u8>,
         reqs: Option<&FetchRequest<'_, '_>>,
         validate_crc: bool,
-    ) -> Result<Response> {
+    ) -> Result<Response, Error> {
         let slice = unsafe { mem::transmute(&response[..]) };
         let mut r = ZReader::new(slice);
         let correlation_id = r.read_i32()?;
@@ -231,7 +238,7 @@ impl<'a> Topic<'a> {
         r: &mut ZReader<'a>,
         reqs: Option<&FetchRequest<'_, '_>>,
         validate_crc: bool,
-    ) -> Result<Topic<'a>> {
+    ) -> Result<Topic<'a>, Error> {
         let name = r.read_str()?;
         let preqs = reqs.and_then(|reqs| reqs.get(name));
         let partitions = array_of!(r, Partition::read(r, preqs, validate_crc));
@@ -268,7 +275,7 @@ pub struct Partition<'a> {
     partition: i32,
 
     /// Either an error or the partition data.
-    data: Result<Data<'a>>,
+    data: Result<Data<'a>, Error>,
 }
 
 impl<'a> Partition<'a> {
@@ -276,7 +283,7 @@ impl<'a> Partition<'a> {
         r: &mut ZReader<'a>,
         preqs: Option<&TopicPartitionFetchRequest>,
         validate_crc: bool,
-    ) -> Result<Partition<'a>> {
+    ) -> Result<Partition<'a>, Error> {
         let partition = r.read_i32()?;
         let proffs = preqs
             .and_then(|preqs| preqs.get(partition))
@@ -306,7 +313,7 @@ impl<'a> Partition<'a> {
     }
 
     /// Retrieves the data payload for this partition.
-    pub fn data(&'a self) -> &'a Result<Data<'a>> {
+    pub fn data(&'a self) -> &'a Result<Data<'a>, Error> {
         &self.data
     }
 }
@@ -361,7 +368,7 @@ pub struct Message<'a> {
 
 impl<'a> MessageSet<'a> {
     #[allow(dead_code)]
-    fn from_vec(data: Vec<u8>, req_offset: i64, validate_crc: bool) -> Result<MessageSet<'a>> {
+    fn from_vec(data: Vec<u8>, req_offset: i64, validate_crc: bool) -> Result<MessageSet<'a>, Error> {
         // since we're going to keep the original
         // uncompressed vector around without
         // further modifying it and providing
@@ -382,7 +389,7 @@ impl<'a> MessageSet<'a> {
         raw_data: &'b [u8],
         req_offset: i64,
         validate_crc: bool,
-    ) -> Result<MessageSet<'b>> {
+    ) -> Result<MessageSet<'b>, Error> {
         let mut r = ZReader::new(raw_data);
         let mut msgs = Vec::new();
         while !r.is_empty() {
@@ -390,7 +397,7 @@ impl<'a> MessageSet<'a> {
                 // this is the last messages which might be
                 // incomplete; a valid case to be handled by
                 // consumers
-                Err(Error(ErrorKind::UnexpectedEOF, _)) => {
+                Err(KafkaErrorKind::UnexpectedEOF) => {
                     break;
                 }
                 Err(e) => {
@@ -424,7 +431,7 @@ impl<'a> MessageSet<'a> {
                             SnappyReader::new(pmsg.value)?.read_to_end(&mut v)?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
-                        _ => bail!(ErrorKind::UnsupportedCompression),
+                        _ => bail!(KafkaErrorKind::UnsupportedCompression),
                     }
                 }
             };
@@ -438,7 +445,7 @@ impl<'a> MessageSet<'a> {
     fn next_message<'b>(
         r: &mut ZReader<'b>,
         validate_crc: bool,
-    ) -> Result<(i64, ProtocolMessage<'b>)> {
+    ) -> Result<(i64, ProtocolMessage<'b>), Error> {
         let offset = r.read_i64()?;
         let msg_data = r.read_bytes()?;
         Ok((offset, ProtocolMessage::from_slice(msg_data, validate_crc)?))
@@ -455,19 +462,19 @@ struct ProtocolMessage<'a> {
 impl<'a> ProtocolMessage<'a> {
     /// Parses a raw message from the given byte slice.  Does _not_
     /// handle any compression.
-    fn from_slice<'b>(raw_data: &'b [u8], validate_crc: bool) -> Result<ProtocolMessage<'b>> {
+    fn from_slice<'b>(raw_data: &'b [u8], validate_crc: bool) -> Result<ProtocolMessage<'b>, Error> {
         let mut r = ZReader::new(raw_data);
 
         // ~ optionally validate the crc checksum
         let msg_crc = r.read_i32()?;
         if validate_crc && to_crc(r.rest()) as i32 != msg_crc {
-            bail!(ErrorKind::Kafka(KafkaCode::CorruptMessage));
+            bail!(KafkaErrorKind::Kafka(KafkaCode::CorruptMessage));
         }
         // ~ we support parsing only messages with the "zero"
         // magic_byte; this covers kafka 0.8 and 0.9.
         let msg_magic = r.read_i8()?;
         if msg_magic != 0 {
-            bail!(ErrorKind::UnsupportedProtocol);
+            bail!(KafkaErrorKind::UnsupportedProtocol);
         }
         let msg_attr = r.read_i8()?;
         let msg_key = r.read_bytes()?;
@@ -490,7 +497,7 @@ mod tests {
     use std::str;
 
     use super::{FetchRequest, Message, Response};
-    use crate::error::{Error, ErrorKind, KafkaCode};
+    use crate::error::{KafkaErrorKind, KafkaCode};
 
     static FETCH1_TXT: &str = include_str!("../../test-data/fetch1.txt");
 

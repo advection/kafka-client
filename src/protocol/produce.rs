@@ -7,7 +7,8 @@ use crate::compression::gzip;
 use crate::compression::snappy;
 use crate::compression::Compression;
 
-use crate::error::{KafkaCode, Result};
+use crate::error::KafkaCode;
+use crate::failure::Error;
 
 use super::to_crc;
 use super::{HeaderRequest, HeaderResponse};
@@ -122,7 +123,7 @@ impl<'a> PartitionProduceRequest<'a> {
 }
 
 impl<'a, 'b> ToByte for ProduceRequest<'a, 'b> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
         try_multi!(
             self.header.encode(buffer),
             self.required_acks.encode(buffer),
@@ -134,7 +135,7 @@ impl<'a, 'b> ToByte for ProduceRequest<'a, 'b> {
 
 impl<'a> ToByte for TopicPartitionProduceRequest<'a> {
     // render: TopicName [Partition MessageSetSize MessageSet]
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
         self.topic.encode(buffer)?;
         (self.partitions.len() as i32).encode(buffer)?;
         for e in &self.partitions {
@@ -149,7 +150,7 @@ impl<'a> PartitionProduceRequest<'a> {
     //
     // MessetSet => [Offset MessageSize Message]
     // MessageSets are not preceded by an int32 like other array elements in the protocol.
-    fn _encode<W: Write>(&self, out: &mut W, compression: Compression) -> Result<()> {
+    fn _encode<W: Write>(&self, out: &mut W, compression: Compression) -> Result<(), Error> {
         self.partition.encode(out)?;
 
         // ~ render the whole MessageSet first to a temporary buffer
@@ -179,7 +180,7 @@ impl<'a> PartitionProduceRequest<'a> {
 // ~ A helper method to render `cdata` into `out` as a compressed message.
 // ~ `out` is first cleared and then populated with the rendered message.
 #[cfg(any(feature = "snappy", feature = "gzip"))]
-fn render_compressed(out: &mut Vec<u8>, cdata: &[u8], compression: Compression) -> Result<()> {
+fn render_compressed(out: &mut Vec<u8>, cdata: &[u8], compression: Compression) -> Result<(), Error> {
     out.clear();
     let cmsg = MessageProduceRequest::new(None, Some(cdata));
     cmsg._encode_to_buf(out, MESSAGE_MAGIC_BYTE, compression as i8)
@@ -202,7 +203,7 @@ impl<'a> MessageProduceRequest<'a> {
     // Value => bytes
     //
     // note: the rendered data corresponds to a single MessageSet in the kafka protocol
-    fn _encode_to_buf(&self, buffer: &mut Vec<u8>, magic: i8, attributes: i8) -> Result<()> {
+    fn _encode_to_buf(&self, buffer: &mut Vec<u8>, magic: i8, attributes: i8) -> Result<(), Error> {
         (0i64).encode(buffer)?; // offset in the response request can be anything
 
         let size_pos = buffer.len();
@@ -230,7 +231,7 @@ impl<'a> MessageProduceRequest<'a> {
 }
 
 impl<'a> ToByte for Option<&'a [u8]> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
         match *self {
             Some(xs) => xs.encode(buffer),
             None => (-1i32).encode(buffer),
@@ -299,7 +300,7 @@ impl FromByte for ProduceResponse {
     type R = ProduceResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         try_multi!(
             self.header.decode(buffer),
             self.topic_partitions.decode(buffer)
@@ -311,7 +312,7 @@ impl FromByte for TopicPartitionProduceResponse {
     type R = TopicPartitionProduceResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         try_multi!(self.topic.decode(buffer), self.partitions.decode(buffer))
     }
 }
@@ -320,7 +321,7 @@ impl FromByte for PartitionProduceResponse {
     type R = PartitionProduceResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         try_multi!(
             self.partition.decode(buffer),
             self.error.decode(buffer),

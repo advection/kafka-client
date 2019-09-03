@@ -19,6 +19,7 @@ log = "0.4.8"
 fnv = "1.0.6"
 twox-hash = "1.5.0"
 error-chain = "0.12.1"
+failure = "0.1.5"
 flate2 = { version = "1.0.11", optional = true }
 snap = { version = "0.2.5", optional = true }
 openssl = { version = "0.9", optional = true }

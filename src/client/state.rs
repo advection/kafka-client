@@ -2,8 +2,8 @@ use std::collections::hash_map::{Entry, HashMap, Keys};
 use std::convert::AsRef;
 use std::slice;
 use std::u32;
+use failure::Error;
 
-use crate::error::Result;
 use crate::protocol;
 
 #[derive(Debug, Default)]
@@ -253,7 +253,7 @@ impl ClientState {
 
     /// Loads new and updates existing metadata from the given
     /// metadata response.
-    pub fn update_metadata(&mut self, md: protocol::MetadataResponse) -> Result<()> {
+    pub fn update_metadata(&mut self, md: protocol::MetadataResponse) -> Result<(), Error> {
         debug!("updating metadata from: {:?}", md);
 
         // ~ register new brokers with self.brokers and obtain an

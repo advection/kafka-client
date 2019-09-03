@@ -19,7 +19,7 @@ fn test_producer_send_non_existent_topic() {
     let error_code = match producer
         .send(&Record::from_value("non-topic", "foo".as_bytes()))
         .unwrap_err() {
-        error::Error(error::ErrorKind::Kafka(code), _) => code,
+        error::Error(error::KafkaError::Kafka(code), _) => code,
         _ => panic!("Should have received Kafka error"),
     };
 
@@ -59,7 +59,7 @@ fn test_producer_send_all_non_existent_topic() {
     ];
 
     let error_code = match producer.send_all(records).unwrap_err() {
-        error::Error(error::ErrorKind::Kafka(code), _) => code,
+        error::Error(error::KafkaError::Kafka(code), _) => code,
         _ => panic!("Should have received Kafka error"),
     };
 

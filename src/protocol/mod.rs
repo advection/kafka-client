@@ -3,10 +3,11 @@ use std::mem;
 use std::time::Duration;
 
 use crate::codecs::{FromByte, ToByte};
-use crate::error::{Error, ErrorKind, KafkaCode, Result};
+use crate::error::{KafkaCode, KafkaErrorKind};
+use crate::failure::Error;
 use crc::crc32;
 
-/// Macro to return Result<()> from multiple statements
+/// Macro to return Result<(), Error> from multiple statements
 macro_rules! try_multi {
     ($($expr:expr),*) => ({
         $(($expr)?;)*
@@ -53,7 +54,7 @@ const API_VERSION: i16 = 0;
 /// particular response structure.
 pub trait ResponseParser {
     type T;
-    fn parse(&self, response: Vec<u8>) -> Result<Self::T>;
+    fn parse(&self, response: Vec<u8>) -> Result<Self::T, Error>;
 }
 
 // --------------------------------------------------------------------
@@ -112,7 +113,7 @@ fn test_kafka_code_from_protocol() {
 // a (sub-) module private method for error
 impl Error {
     fn from_protocol(n: i16) -> Option<Error> {
-        KafkaCode::from_protocol(n).map(|err| ErrorKind::Kafka(err).into())
+        KafkaCode::from_protocol(n).map(|err| KafkaErrorKind::Kafka(err).into())
     }
 }
 
@@ -143,13 +144,11 @@ impl<'a> HeaderRequest<'a> {
 }
 
 impl<'a> ToByte for HeaderRequest<'a> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
-        try_multi!(
-            self.api_key.encode(buffer),
-            self.api_version.encode(buffer),
-            self.correlation_id.encode(buffer),
-            self.client_id.encode(buffer)
-        )
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+        self.api_key.encode(buffer)?;
+        self.api_version.encode(buffer)?;
+        self.correlation_id.encode(buffer)?;
+        self.client_id.encode(buffer)?;
     }
 }
 
@@ -164,7 +163,7 @@ impl FromByte for HeaderResponse {
     type R = HeaderResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
         self.correlation.decode(buffer)
     }
 }
@@ -179,14 +178,14 @@ pub fn to_crc(data: &[u8]) -> u32 {
 
 /// Safely converts a Duration into the number of milliseconds as a
 /// i32 as often required in the kafka protocol.
-pub fn to_millis_i32(d: Duration) -> Result<i32> {
+pub fn to_millis_i32(d: Duration) -> Result<i32, Error> {
     use std::i32;
     let m = d
         .as_secs()
         .saturating_mul(1_000)
         .saturating_add(u64::from(d.subsec_millis()));
     if m > i32::MAX as u64 {
-        bail!(ErrorKind::InvalidDuration)
+        bail!(KafkaErrorKind::InvalidDuration)
     } else {
         Ok(m as i32)
     }
@@ -198,7 +197,7 @@ fn test_to_millis_i32() {
 
     fn assert_invalid(d: Duration) {
         match to_millis_i32(d) {
-            Err(Error(ErrorKind::InvalidDuration, _)) => {}
+            Err(Error(KafkaErrorKind::InvalidDuration)) => {}
             other => panic!("Expected Err(InvalidDuration) but got {:?}", other),
         }
     }

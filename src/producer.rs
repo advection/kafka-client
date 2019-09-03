@@ -60,7 +60,7 @@
 // XXX 2) Handle recoverable errors behind the scenes through retry attempts
 
 use crate::client::{self, KafkaClient, SecurityConfig};
-use crate::error::{ErrorKind, Result};
+use crate::failure::Error;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
@@ -73,6 +73,7 @@ use twox_hash::XxHash32;
 type SecurityConfig = ();
 use crate::client_internals::KafkaClientInternals;
 use crate::protocol;
+use crate::error::KafkaErrorKind;
 
 // public re-exports
 pub use crate::client::{Compression, ProduceConfirm, ProducePartitionConfirm, RequiredAcks};
@@ -247,7 +248,7 @@ impl Producer {
 
 impl<P: Partitioner> Producer<P> {
     /// Synchronously send the specified message to Kafka.
-    pub fn send<'a, K, V>(&mut self, rec: &Record<'a, K, V>) -> Result<()>
+    pub fn send<'a, K, V>(&mut self, rec: &Record<'a, K, V>) -> Result<(), Error>
     where
         K: AsBytes,
         V: AsBytes,
@@ -269,14 +270,14 @@ impl<P: Partitioner> Producer<P> {
                 .unwrap()
                 .offset
                 .map(|_| ())
-                .map_err(|err| ErrorKind::Kafka(err).into())
+                .map_err(|err| KafkaErrorKind::Kafka(err).into())
         }
     }
 
     /// Synchronously send all of the specified messages to Kafka. To validate
     /// that all of the specified records have been successfully delivered,
     /// inspection of the offsets on the returned confirms is necessary.
-    pub fn send_all<'a, K, V>(&mut self, recs: &[Record<'a, K, V>]) -> Result<Vec<ProduceConfirm>>
+    pub fn send_all<'a, K, V>(&mut self, recs: &[Record<'a, K, V>]) -> Result<Vec<ProduceConfirm>, Error>
     where
         K: AsBytes,
         V: AsBytes,
@@ -314,7 +315,7 @@ fn to_option(data: &[u8]) -> Option<&[u8]> {
 // --------------------------------------------------------------------
 
 impl<P> State<P> {
-    fn new(client: &mut KafkaClient, partitioner: P) -> Result<State<P>> {
+    fn new(client: &mut KafkaClient, partitioner: P) -> Result<State<P>, Error> {
         let ts = client.topics();
         let mut ids = HashMap::with_capacity(ts.len());
         for t in ts {
@@ -454,7 +455,7 @@ impl<P> Builder<P> {
 
     /// Finally creates/builds a new producer based on the so far
     /// supplied settings.
-    pub fn create(self) -> Result<Producer<P>> {
+    pub fn create(self) -> Result<Producer<P>, Error> {
         // ~ create the client if necessary
         let (mut client, need_metadata) = match self.client {
             Some(client) => (client, false),

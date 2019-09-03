@@ -12,6 +12,7 @@
 
 #[macro_use]
 extern crate error_chain;
+#[macro_use] extern crate failure;
 
 #[macro_use]
 extern crate log;
@@ -25,5 +26,3 @@ pub mod error;
 pub mod producer;
 mod protocol;
 mod utils;
-
-pub use self::error::{Error, Result};

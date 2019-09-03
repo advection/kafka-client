@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::client::{self, FetchOffset, KafkaClient, SecurityConfig};
-use crate::error::{ErrorKind, Result};
 
 use super::assignment;
 use super::config::Config;
 use super::state::State;
 use super::{Consumer, DEFAULT_FALLBACK_OFFSET, DEFAULT_RETRY_MAX_BYTES_LIMIT};
+use failure::Error;
+use crate::error::KafkaErrorKind;
 
 #[cfg(feature = "security")]
 #[cfg(not(feature = "security"))]
@@ -219,10 +220,10 @@ impl Builder {
     /// Fails with the `NoTopicsAssigned` error, if neither
     /// `with_topic` nor `with_topic_partitions` have been called to
     /// assign at least one topic for consumption.
-    pub fn create(self) -> Result<Consumer> {
+    pub fn create(self) -> Result<Consumer, Error> {
         // ~ fail immediately if there's no topic to be consumed
         if self.assignments.is_empty() {
-            bail!(ErrorKind::NoTopicsAssigned);
+             bail!(KafkaErrorKind::NoTopicsAssigned);
         }
         // ~ create the client if necessary
         let (mut client, need_metadata) = match self.client {

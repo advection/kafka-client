@@ -1,7 +1,8 @@
 use std::str;
 
-use crate::error::{ErrorKind, Result};
+use crate::failure::Error;
 use byteorder::{BigEndian, ByteOrder};
+use crate::error::KafkaErrorKind;
 
 static EMPTY_STR: &str = "";
 
@@ -25,9 +26,9 @@ impl<'a> ZReader<'a> {
     /// the consumed bytes. The returned slice is guaranteed to be
     /// `n_bytes` long. This operation either succeeds or fails as a
     /// whole. Upon failure the reader will _not_ advance.
-    pub fn read<'b>(&'b mut self, n_bytes: usize) -> Result<&'a [u8]> {
+    pub fn read<'b>(&'b mut self, n_bytes: usize) -> Result<&'a [u8], Error> {
         if n_bytes > self.data.len() {
-            bail!(ErrorKind::UnexpectedEOF)
+            bail!(KafkaErrorKind::UnexpectedEOF)
         } else {
             let (x, rest) = self.data.split_at(n_bytes);
             self.data = rest;
@@ -47,25 +48,25 @@ impl<'a> ZReader<'a> {
         self.data.is_empty()
     }
 
-    pub fn read_i8(&mut self) -> Result<i8> {
+    pub fn read_i8(&mut self) -> Result<i8, Error> {
         self.read(1).map(|x| unsafe { *x.get_unchecked(0) as i8 })
     }
 
-    pub fn read_i16(&mut self) -> Result<i16> {
+    pub fn read_i16(&mut self) -> Result<i16, Error> {
         self.read(2).map(|x| dec!(read_i16, x))
     }
 
-    pub fn read_i32(&mut self) -> Result<i32> {
+    pub fn read_i32(&mut self) -> Result<i32, Error> {
         self.read(4).map(|x| dec!(read_i32, x))
     }
 
-    pub fn read_i64(&mut self) -> Result<i64> {
+    pub fn read_i64(&mut self) -> Result<i64, Error> {
         self.read(8).map(|x| dec!(read_i64, x))
     }
 
     /// Reads a string as defined by the Kafka Protocol. The 'null'
     /// string is delivered as the empty string.
-    pub fn read_str<'b>(&'b mut self) -> Result<&'a str> {
+    pub fn read_str<'b>(&'b mut self) -> Result<&'a str, Error> {
         let len = self.read_i16()?;
         if len <= 0 {
             Ok(EMPTY_STR)
@@ -73,14 +74,14 @@ impl<'a> ZReader<'a> {
             // alternatively: str::from_utf8_unchecked(..)
             match str::from_utf8(self.read(len as usize)?) {
                 Ok(s) => Ok(s),
-                Err(_) => bail!(ErrorKind::StringDecodeError),
+                Err(_) => KafkaErrorKind::StringDecodeError,
             }
         }
     }
 
     /// Reads 'bytes' as defined by the Kafka Protocol. The 'null'
     /// bytes are delivered as an empty slice.
-    pub fn read_bytes<'b>(&'b mut self) -> Result<&'a [u8]> {
+    pub fn read_bytes<'b>(&'b mut self) -> Result<&'a [u8], Error> {
         let len = self.read_i32()?;
         if len <= 0 {
             Ok(&self.data[0..0])
@@ -92,7 +93,7 @@ impl<'a> ZReader<'a> {
     /// Reads the size of an array as defined by the Kafka
     /// Protocol. The size of 'null' array will be returned as the
     /// size an array of an empty array.
-    pub fn read_array_len(&mut self) -> Result<usize> {
+    pub fn read_array_len(&mut self) -> Result<usize, Error> {
         let len = self.read_i32()?;
         Ok(if len < 0 { 0 } else { len as usize })
     }
