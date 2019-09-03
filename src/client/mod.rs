@@ -10,6 +10,7 @@ use std::collections::hash_map::HashMap;
 use std::io::Cursor;
 use std::iter::Iterator;
 use std::mem;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -452,7 +453,7 @@ impl KafkaClient {
     /// as well as
     /// [Kafka's documentation](https://kafka.apache.org/documentation.html#security_ssl).
     #[cfg(feature = "security")]
-    pub fn new_secure(hosts: Vec<String>, security: SecurityConfig) -> KafkaClient {
+    pub fn new_secure(hosts: Vec<String>, security: Arc<SecurityConfig>) -> KafkaClient {
         KafkaClient {
             config: ClientConfig {
                 client_id: String::new(),
