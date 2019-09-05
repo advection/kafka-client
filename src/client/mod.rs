@@ -905,9 +905,9 @@ impl KafkaClient {
                         resp_offsets.push(partition_offset);
                     }
                 }
-                if let Some((partition, code)) = err {
-                    let topic = KafkaClient::get_key_from_entry(entry);
-                    bail!(KafkaErrorKind::TopicPartitionError{ topic, partition, code });
+                if let Some((partition_id, error_code)) = err {
+                    let topic_name = KafkaClient::get_key_from_entry(entry);
+                    bail!(KafkaErrorKind::TopicPartitionError{ topic_name, partition_id, error_code });
                 }
                 if let hash_map::Entry::Vacant(e) = entry {
                     // unwrap is ok because if it is Vacant, it would have
@@ -952,7 +952,7 @@ impl KafkaClient {
         let mut m = self.fetch_offsets(&[topic], offset)?;
         let offs = m.remove(topic).unwrap_or_default();
         if offs.is_empty() {
-            bail!(KafkaErrorKind::Kafka { KafkaCode::UnknownTopicOrPartition() } )
+            return Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into() )
         } else {
             Ok(offs)
         }
@@ -1164,7 +1164,7 @@ impl KafkaClient {
             if self.state.contains_topic_partition(o.topic, o.partition) {
                 req.add(o.topic, o.partition, o.offset, "");
             } else {
-                bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition) )
+                bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into() )
             }
         }
         if req.topic_partitions.is_empty() {
@@ -1237,7 +1237,7 @@ impl KafkaClient {
             if self.state.contains_topic_partition(p.topic, p.partition) {
                 req.add(p.topic, p.partition);
             } else {
-                bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
+                return Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into() );
             }
         }
         __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)
@@ -1303,7 +1303,7 @@ impl KafkaClientInternals for KafkaClient {
         for msg in messages {
             let msg = msg.as_ref();
             match state.find_broker(msg.topic, msg.partition) {
-                None => bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
+                None => bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into()),
                 Some(broker) => reqs
                     .entry(broker)
                     .or_insert_with(|| {
@@ -1471,11 +1471,11 @@ fn __fetch_group_offsets(
                     Ok(o) => {
                         partition_offsets.push(o);
                     }
-                    Err(Error(KafkaErrorKind::Kafka(e @ KafkaCode::GroupLoadInProgress))) => {
+                    Err(KafkaErrorKind::Kafka(e @ KafkaCode::GroupLoadInProgress)) => {
                         retry_code = Some(e);
                         break 'rproc;
                     }
-                    Err(Error(KafkaErrorKind::Kafka(e @ KafkaCode::NotCoordinatorForGroup))) => {
+                    Err(KafkaErrorKind::Kafka(e @ KafkaCode::NotCoordinatorForGroup)) => {
                         debug!(
                             "fetch_group_offsets: resetting group coordinator for '{}'",
                             req.group

@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 use openssl::ssl::SslConnector;
 
 use failure::Error;
-use crate::error::KafkaErrorKind;
 
 // --------------------------------------------------------------------
 
@@ -258,7 +257,6 @@ mod openssled {
     use std::io::{self, Read, Write};
     use std::net::{Shutdown, TcpStream};
     use std::time::Duration;
-    use failure::Error;
 
     use super::IsSecured;
 
@@ -285,7 +283,7 @@ mod openssled {
         }
 
         pub fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-            self.get_ref().set_read_timeout(dur).map(Ok(()))
+            self.get_ref().set_read_timeout(dur)
         }
 
         pub fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()> {

@@ -76,27 +76,24 @@ impl PartitionOffsetRequest {
 
 impl<'a> ToByte for OffsetRequest<'a> {
     fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(
-            self.header.encode(buffer),
-            self.replica.encode(buffer),
+            self.header.encode(buffer)?;
+            self.replica.encode(buffer)?;
             self.topic_partitions.encode(buffer)
-        )
     }
 }
 
 impl<'a> ToByte for TopicPartitionOffsetRequest<'a> {
     fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(self.topic.encode(buffer), self.partitions.encode(buffer))
+        self.topic.encode(buffer)?;
+        self.partitions.encode(buffer)
     }
 }
 
 impl ToByte for PartitionOffsetRequest {
     fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(
-            self.partition.encode(buffer),
-            self.time.encode(buffer),
+            self.partition.encode(buffer)?;
+            self.time.encode(buffer)?;
             self.max_offsets.encode(buffer)
-        )
     }
 }
 
@@ -145,10 +142,8 @@ impl FromByte for OffsetResponse {
 
     #[allow(unused_must_use)]
     fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(
-            self.header.decode(buffer),
+            self.header.decode(buffer)?;
             self.topic_partitions.decode(buffer)
-        )
     }
 }
 
@@ -157,7 +152,8 @@ impl FromByte for TopicPartitionOffsetResponse {
 
     #[allow(unused_must_use)]
     fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(self.topic.decode(buffer), self.partitions.decode(buffer))
+        self.topic.decode(buffer)?;
+        self.partitions.decode(buffer)
     }
 }
 
@@ -166,10 +162,8 @@ impl FromByte for PartitionOffsetResponse {
 
     #[allow(unused_must_use)]
     fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(
-            self.partition.decode(buffer),
-            self.error.decode(buffer),
-            self.offset.decode(buffer)
-        )
+        self.partition.decode(buffer)?;
+        self.error.decode(buffer)?;
+        self.offset.decode(buffer)
     }
 }

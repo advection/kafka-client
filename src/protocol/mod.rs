@@ -7,13 +7,6 @@ use crate::error::{KafkaCode, KafkaErrorKind};
 use crate::failure::Error;
 use crc::crc32;
 
-/// Macro to return Result<(), Error> from multiple statements
-macro_rules! try_multi {
-    ($($expr:expr),*) => ({
-        $(($expr)?;)*
-        Ok(())
-    })
-}
 
 pub mod consumer;
 pub mod metadata;
@@ -110,13 +103,6 @@ fn test_kafka_code_from_protocol() {
     assert_kafka_code!(KafkaCode::Unknown, 100);
 }
 
-// a (sub-) module private method for error
-impl Error {
-    fn from_protocol(n: i16) -> Option<Error> {
-        KafkaCode::from_protocol(n).map(|err| KafkaErrorKind::Kafka(err).into())
-    }
-}
-
 // --------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -148,7 +134,7 @@ impl<'a> ToByte for HeaderRequest<'a> {
         self.api_key.encode(buffer)?;
         self.api_version.encode(buffer)?;
         self.correlation_id.encode(buffer)?;
-        self.client_id.encode(buffer)?;
+        self.client_id.encode(buffer)
     }
 }
 

@@ -10,19 +10,16 @@ use openssl::error::ErrorStack;
 use openssl::ssl::{self, Error as SslError};
 #[cfg(feature = "security")]
 
-use failure::{Error, Fail};
-use crate::error::{KafkaError, KafkaErrorKind};
-use crate::failure::{Context, Failure, Display};
+use failure::Fail;
+use crate::failure::{Context, Backtrace};
 
 /// An error as reported by a remote Kafka server
 
 #[derive(Eq, PartialEq, Debug, Fail)]
 pub enum KafkaErrorKind {
 
-    #[fail(display = "KafkaError: {:?}", error_code)]
-     Kafka {
-        error_code: KafkaCode,
-    },
+    #[fail(display = "KafkaError: {:?}", _0)]
+     Kafka(KafkaCode),
 
     /// An error when transmitting a request for a particular topic and partition.
     /// Contains the topic and partition of the request that failed,
@@ -71,7 +68,6 @@ pub enum KafkaErrorKind {
     #[fail(display = "{}", _0)]
     InvalidSnappy(#[fail(cause)] ::snap::Error),
 
-
     #[fail(display = "{}", _0)]
     IoError(#[fail(cause)] io::Error),
 
@@ -86,7 +82,7 @@ pub enum KafkaErrorKind {
 
 
 #[cfg(feature = "snappy")]
-pub fn from_snap_error_ref(err: &::snap::Error) -> KafkaKafkaErrorKind {
+pub fn from_snap_error_ref(err: &::snap::Error) -> KafkaErrorKind {
     match err {
         &::snap::Error::TooBig { given, max } => {
             KafkaErrorKind::InvalidSnappy(::snap::Error::TooBig { given, max })
@@ -143,7 +139,7 @@ pub fn from_snap_error_ref(err: &::snap::Error) -> KafkaKafkaErrorKind {
 
 #[derive(Debug)]
 struct KafkaError {
-    inner: Context<MyErrorKind>,
+    inner: Context<KafkaErrorKind>,
 }
 
 // zlb: seems like it might make sense to make these also error enums
@@ -265,7 +261,7 @@ pub enum KafkaCode {
     UnsupportedVersion = 35,
 }
 
-#[cfg(feature = "security")]
+/*#[cfg(feature = "security")]
 impl<S> From<ssl::HandshakeError<S>> for Error {
     fn from(err: ssl::HandshakeError<S>) -> Error {
         match err {
@@ -276,8 +272,68 @@ impl<S> From<ssl::HandshakeError<S>> for Error {
         }
     }
 }
+*/
 
-impl Clone for Error {
+#[cfg(feature = "security")]
+fn from_sslerror_ref(err: &ssl::Error) -> KafkaErrorKind {
+    match err {
+        SslError::ZeroReturn => KafkaErrorKind::SSLError(SslError::ZeroReturn),
+        SslError::WantRead(ref e) => KafkaErrorKind::SSLError(SslError::WantRead(clone_ioe(e))),
+        SslError::WantWrite(ref e) => KafkaErrorKind::SSLError(SslError::WantWrite(clone_ioe(e))),
+        SslError::WantX509Lookup => KafkaErrorKind::SSLError(SslError::WantX509Lookup),
+        SslError::Stream(ref e) => KafkaErrorKind::SSLError(SslError::Stream(clone_ioe(e))),
+        SslError::Ssl(ref es) => KafkaErrorKind::SSLError(SslError::Ssl(es.clone())),
+    }
+}
+
+
+
+/// Attempt to clone `io::Error`.
+fn clone_ioe(e: &io::Error) -> io::Error {
+    match e.raw_os_error() {
+        Some(code) => io::Error::from_raw_os_error(code),
+        None => io::Error::new(e.kind(), format!("Io error: {}", e)),
+    }
+}
+
+impl Fail for KafkaError {
+    fn cause(&self) -> Option<& dyn Fail> {
+        self.inner.cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner.backtrace()
+    }
+}
+
+impl fmt::Display for KafkaError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.inner, f)
+    }
+}
+
+
+impl KafkaError {
+    pub fn kind(&self) -> KafkaErrorKind {
+        *self.inner.get_context()
+    }
+}
+
+impl From<KafkaErrorKind> for KafkaError {
+    fn from(kind: KafkaErrorKind) -> KafkaError {
+        KafkaError { inner: Context::new(kind) }
+    }
+}
+
+impl From<Context<KafkaErrorKind>> for KafkaError {
+    fn from(inner: Context<KafkaErrorKind>) -> KafkaError {
+        KafkaError { inner: inner }
+    }
+}
+
+
+
+/*impl Clone for Error {
     fn clone(&self) -> Error {
         match self {
             Error(KafkaErrorKind::Io(err)) => KafkaErrorKind::Io(clone_ioe(err)).into(),
@@ -303,61 +359,4 @@ impl Clone for Error {
             Error(k) => KafkaErrorKind::Msg(k.to_string()).into(), // XXX: Strange to have to add this, what is missing?
         }
     }
-}
-
-#[cfg(feature = "security")]
-fn from_sslerror_ref(err: &ssl::Error) -> KafkaErrorKind {
-    match err {
-        SslError::ZeroReturn => KafkaErrorKind::Ssl(SslError::ZeroReturn),
-        SslError::WantRead(ref e) => KafkaErrorKind::Ssl(SslError::WantRead(clone_ioe(e))),
-        SslError::WantWrite(ref e) => KafkaErrorKind::Ssl(SslError::WantWrite(clone_ioe(e))),
-        SslError::WantX509Lookup => KafkaErrorKind::Ssl(SslError::WantX509Lookup),
-        SslError::Stream(ref e) => KafkaErrorKind::Ssl(SslError::Stream(clone_ioe(e))),
-        SslError::Ssl(ref es) => KafkaErrorKind::Ssl(SslError::Ssl(es.clone())),
-    }
-}
-
-
-
-/// Attempt to clone `io::Error`.
-fn clone_ioe(e: &io::Error) -> io::Error {
-    match e.raw_os_error() {
-        Some(code) => io::Error::from_raw_os_error(code),
-        None => io::Error::new(e.kind(), format!("Io error: {}", e)),
-    }
-}
-
-impl Fail for KafkaError {
-    fn cause(&self) -> Option<&Fail> {
-        self.inner.cause()
-    }
-
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.inner.backtrace()
-    }
-}
-
-impl Display for MyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Display::fmt(&self.inner, f)
-    }
-}
-
-
-impl MyError {
-    pub fn kind(&self) -> MyErrorKind {
-        *self.inner.get_context()
-    }
-}
-
-impl From<KafkaErrorKind> for MyError {
-    fn from(kind: MyErrorKind) -> KafkaError {
-        KafkaError { inner: Context::new(kind) }
-    }
-}
-
-impl From<Contex<KafkaErrorKind>> for MyError {
-    fn from(inner: Context<MyErrorKind>) -> KafkaError {
-        KafkaError { inner: inner }
-    }
-}
+}*/

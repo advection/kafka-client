@@ -180,7 +180,7 @@ impl Consumer {
             Some(tp) => {
                 let s = match self.state.fetch_offsets.get(&tp) {
                     Some(fstate) => fstate,
-                    None => KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)
+                    None => return Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into())
                 };
                 let topic = self.state.topic_name(tp.topic_ref);
                 debug!(
@@ -251,7 +251,7 @@ impl Consumer {
                     // transparently for the caller.
                     let data = match p.data() {
                         // XXX need to prevent updating fetch_offsets in case we're gonna fail here
-                        Err(ref e) => return Err(e.clone()),
+                        Err(ref e) => return Err(*e.into()),
                         Ok(ref data) => data,
                     };
 

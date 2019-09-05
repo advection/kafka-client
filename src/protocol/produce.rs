@@ -124,12 +124,10 @@ impl<'a> PartitionProduceRequest<'a> {
 
 impl<'a, 'b> ToByte for ProduceRequest<'a, 'b> {
     fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
-        try_multi!(
-            self.header.encode(buffer),
-            self.required_acks.encode(buffer),
-            self.timeout.encode(buffer),
-            self.topic_partitions.encode(buffer)
-        )
+        self.header.encode(buffer)?;
+        self.required_acks.encode(buffer)?;
+        self.timeout.encode(buffer)?;
+        self.topic_partitions.encode(buffer)
     }
 }
 
@@ -224,9 +222,7 @@ impl<'a> MessageProduceRequest<'a> {
 
         // compute the size and store it back in the reserved space
         size = (buffer.len() - crc_pos) as i32;
-        size.encode(&mut &mut buffer[size_pos..size_pos + 4])?;
-
-        Ok(())
+        size.encode(&mut &mut buffer[size_pos..size_pos + 4])
     }
 }
 
@@ -301,10 +297,8 @@ impl FromByte for ProduceResponse {
 
     #[allow(unused_must_use)]
     fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(
-            self.header.decode(buffer),
-            self.topic_partitions.decode(buffer)
-        )
+        self.header.decode(buffer)?;
+        self.topic_partitions.decode(buffer)
     }
 }
 
@@ -313,7 +307,8 @@ impl FromByte for TopicPartitionProduceResponse {
 
     #[allow(unused_must_use)]
     fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(self.topic.decode(buffer), self.partitions.decode(buffer))
+        self.topic.decode(buffer)?;
+        self.partitions.decode(buffer)
     }
 }
 
@@ -322,10 +317,8 @@ impl FromByte for PartitionProduceResponse {
 
     #[allow(unused_must_use)]
     fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(
-            self.partition.decode(buffer),
-            self.error.decode(buffer),
+            self.partition.decode(buffer)?;
+            self.error.decode(buffer)?;
             self.offset.decode(buffer)
-        )
     }
 }

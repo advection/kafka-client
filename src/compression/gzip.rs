@@ -18,7 +18,7 @@ pub fn uncompress<T: Read>(src: T) -> Result<Vec<u8>, Error> {
     let mut d = GzDecoder::new(src);
 
     let mut buffer: Vec<u8> = Vec::new();
-    d.read_to_end(&mut buffer).map(Ok(buffer))?
+    d.read_to_end(&mut buffer).map(|_| Ok(buffer))?
 }
 
 #[test]

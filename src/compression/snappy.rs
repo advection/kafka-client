@@ -5,7 +5,7 @@ use snap;
 
 use failure::Error;
 
-use crate::error::{KafkaErrorKind};
+use crate::error::{KafkaErrorKind, from_snap_error_ref};
 
 pub fn compress(src: &[u8]) -> Result<Vec<u8>, Error> {
     let mut buf = vec![0; snap::max_compress_len(src.len())];
@@ -16,21 +16,21 @@ pub fn compress(src: &[u8]) -> Result<Vec<u8>, Error> {
             buf.truncate(len);
             buf
         })
-        .map_err(|err| KafkaErrorKind::Kafka.into()) //zlb: will have to come back to this
+        .map_err(|err| from_snap_error_ref(&err).into() ) //zlb: will have to come back to this
 }
 
 // ~ reads a i32 value and "advances" the given slice by four bytes;
 // assumes "slice" is a mutable reference to a &[u8].
-fn next_i32(mut slice: &[u8]) -> Result<i32, Error> {
+fn next_i32(mut slice: &[u8]) -> io::Result<i32> {
     if slice.len() < 4 {
-        Err(KafkaErrorKind::UnexpectedEOF);
+        return Err(io::ErrorKind::UnexpectedEof.into())
     }
     let n = BigEndian::read_i32(slice);
     slice = &slice[4..];
     Ok(n)
 }
 
-fn uncompress_to(src: &[u8], dst: &mut Vec<u8>) -> Result<(), Error> {
+fn uncompress_to(src: &[u8], dst: &mut Vec<u8>) -> io::Result<()> {
     snap::decompress_len(src)
         .and_then(|min_len| {
             if min_len > 0 {
@@ -44,7 +44,7 @@ fn uncompress_to(src: &[u8], dst: &mut Vec<u8>) -> Result<(), Error> {
             }
             Ok(())
         })
-        .map_err(|err| Err(KafkaError(err)) )
+        .map_err(|err| err.into() )
 }
 
 // --------------------------------------------------------------------
@@ -59,21 +59,21 @@ const MAGIC: &[u8] = &[0x82, b'S', b'N', b'A', b'P', b'P', b'Y', 0];
 fn validate_stream(mut stream: &[u8]) -> Result<&[u8], Error> {
     // ~ check the "header magic"
     if stream.len() < MAGIC.len() {
-        Err(KafkaErrorKind::UnexpectedEOF);
+        Err(io::ErrorKind::UnexpectedEof)? // zlb: I get it, lots of intos
     }
     if &stream[..MAGIC.len()] != MAGIC {
-        Err(KafkaErrorKind::InvalidSnappy(snap::Error::Header));
+        Err(from_snap_error_ref(&snap::Error::Header))?
     }
     stream = &stream[MAGIC.len()..];
     // ~ let's be assertive and (for the moment) restrict ourselves to
     // version == 1 and compatibility == 1.
-    let version = next_i32(stream);
+    let version = next_i32(stream)?;
     if version != 1 {
-        Err(KafkaErrorKind::InvalidSnappy(snap::Error::Header));
+        Err(from_snap_error_ref(&snap::Error::Header))?
     }
-    let compat = next_i32(stream);
+    let compat = next_i32(stream)?;
     if compat != 1 {
-        return Err(KafkaErrorKind::InvalidSnappy(snap::Error::Header));
+        Err(from_snap_error_ref(&snap::Error::Header))?
     }
     Ok(stream)
 }
@@ -137,7 +137,7 @@ impl<'a> SnappyReader<'a> {
             return Ok(false);
         }
         self.uncompressed_pos = 0;
-        let chunk_size = next_i32(self.compressed_data);
+        let chunk_size = next_i32(self.compressed_data)?;
         if chunk_size <= 0 {
             bail!(KafkaErrorKind::InvalidSnappy(
                 snap::Error::UnsupportedChunkLength {
@@ -156,7 +156,7 @@ impl<'a> SnappyReader<'a> {
         Ok(true)
     }
 
-    fn _read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Error> {
+    fn _read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
         let init_len = buf.len();
         // ~ first consume already uncompressed and unconsumed data - if any
         if self.uncompressed_pos < self.uncompressed_chunk.len() {
@@ -166,14 +166,13 @@ impl<'a> SnappyReader<'a> {
         }
         // ~ now decompress data directly to the output target
         while !self.compressed_data.is_empty() {
-            let chunk_size = next_i32(self.compressed_data);
+            let chunk_size = next_i32(self.compressed_data)?;
             if chunk_size <= 0 {
-                bail!(KafkaErrorKind::InvalidSnappy(
-                    snap::Error::UnsupportedChunkLength {
-                        len: chunk_size as u64,
-                        header: false,
-                    }
-                ));
+                return Err(snap::Error::UnsupportedChunkLength {
+                    len: chunk_size as u64,
+                    header: false,
+                }.into()
+                );
             }
             let (c1, c2) = self.compressed_data.split_at(chunk_size as usize);
             uncompress_to(c1, buf)?;
@@ -184,11 +183,16 @@ impl<'a> SnappyReader<'a> {
 }
 
 impl<'a> Read for SnappyReader<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        self._read(buf)
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self._read(buf).map_err(|error| {
+            match error.downcast::<io::Error>() {
+                Ok(io_error) => { io_error }
+                Err(error) => { io::ErrorKind::Other.into() } // zlb: so with this as such we lose error information.
+            } // looks like the io package allows for custom error types to be returned/ surface todo: use custom i/o errors for these snappy errors
+        })
     }
 
-    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, Error> {
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
         self._read_to_end(buf) // this needs to
     }
 }

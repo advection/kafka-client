@@ -125,11 +125,9 @@ impl TopicPartitionFetchRequest {
 
 impl PartitionFetchRequest {
     fn encode<T: Write>(&self, partition: i32, buffer: &mut T) -> Result<(), Error> {
-        try_multi!(
-            partition.encode(buffer),
-            self.offset.encode(buffer),
+            partition.encode(buffer)?;
+            self.offset.encode(buffer)?;
             self.max_bytes.encode(buffer)
-        )
     }
 }
 
@@ -153,6 +151,8 @@ impl<'a, 'b, 'c> super::ResponseParser for ResponseParser<'a, 'b, 'c> {
 
 // ~ helper macro to aid parsing arrays of values (as defined by the
 // Kafka protocol.)
+// zlb: why do this as a macro vs a function call?
+//fn arrayOf
 macro_rules! array_of {
     ($zreader:ident, $parse_elem:expr) => {{
         let n_elems = $zreader.read_array_len()?;
@@ -397,7 +397,7 @@ impl<'a> MessageSet<'a> {
                 // this is the last messages which might be
                 // incomplete; a valid case to be handled by
                 // consumers
-                Err(KafkaErrorKind::UnexpectedEOF) => {
+                Err(io::Error::UnexpectedEof) => {
                     break;
                 }
                 Err(e) => {
