@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "security")]
-use rustls::{ClientConfig, ClientSession};
+use rustls::ClientConfig;
 
 use crate::error::Result;
 

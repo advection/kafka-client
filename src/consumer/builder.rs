@@ -1,5 +1,6 @@
 use crate::client::GroupOffsetStorage;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::client::{self, FetchOffset, KafkaClient, SecurityConfig};
@@ -28,7 +29,7 @@ pub struct Builder {
     fetch_max_bytes_per_partition: i32,
     retry_max_bytes_limit: i32,
     fetch_crc_validation: bool,
-    security_config: Option<SecurityConfig>,
+    security_config: Option<Arc<SecurityConfig>>,
     group_offset_storage: GroupOffsetStorage,
     conn_idle_timeout: Duration,
     client_id: Option<String>,
@@ -107,7 +108,7 @@ impl Builder {
     /// See `KafkaClient::new_secure` for more info.
     #[cfg(feature = "security")]
     pub fn with_security(mut self, sec: SecurityConfig) -> Builder {
-        self.security_config = Some(sec);
+        self.security_config = Some(Arc::new(sec));
         self
     }
 
@@ -205,7 +206,7 @@ impl Builder {
     }
 
     #[cfg(feature = "security")]
-    fn new_kafka_client(hosts: Vec<String>, security: Option<SecurityConfig>) -> KafkaClient {
+    fn new_kafka_client(hosts: Vec<String>, security: Option<Arc<SecurityConfig>>) -> KafkaClient {
         if let Some(security) = security {
             KafkaClient::new_secure(hosts, security)
         } else {
