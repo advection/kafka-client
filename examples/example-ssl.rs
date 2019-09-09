@@ -9,15 +9,14 @@ fn main() {
 mod example {
     extern crate env_logger;
     extern crate getopts;
-    extern crate openssl;
 
     use std::env;
+    use std::fs;
+    use std::io::{BufReader, Read, Write};
     use std::process;
+    use std::sync::Arc;
 
     use kafka::client::{FetchOffset, KafkaClient, SecurityConfig};
-
-    use self::openssl::ssl::{SslConnectorBuilder, SslMethod, SSL_VERIFY_PEER};
-    use self::openssl::x509::X509_FILETYPE_PEM;
 
     pub fn main() {
         env_logger::init();
@@ -31,43 +30,49 @@ mod example {
             }
         };
 
-        // ~ OpenSSL offers a variety of complex configurations. Here is an example:
-        let mut builder = SslConnectorBuilder::new(SslMethod::tls()).unwrap();
-        {
-            builder.set_cipher_list("DEFAULT").unwrap();
-            builder.set_verify(SSL_VERIFY_PEER);
+        let mut rustls_config = {
+            let mut config = rustls::ClientConfig::new();
+            config
+                .root_store
+                .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
             if let (Some(ccert), Some(ckey)) = (cfg.client_cert, cfg.client_key) {
                 info!("loading cert-file={}, key-file={}", ccert, ckey);
+                let certs = {
+                    let file = fs::File::open(ccert).expect("cannot open private key file");
+                    let mut reader = BufReader::new(file);
+                    rustls::internal::pemfile::certs(&mut reader)
+                        .expect("unable to read certs file")
+                };
 
-                builder
-                    .set_certificate_file(ccert, X509_FILETYPE_PEM)
-                    .unwrap();
-                builder
-                    .set_private_key_file(ckey, X509_FILETYPE_PEM)
-                    .unwrap();
-                builder.check_private_key().unwrap();
+                let keys = {
+                    let file = fs::File::open(ckey).expect("cannot open private key file");
+                    let mut reader = BufReader::new(file);
+                    rustls::internal::pemfile::rsa_private_keys(&mut reader)
+                        .expect("unable to read key file")
+                };
+
+                let key = keys[0].clone();
+                config.set_single_client_cert(certs, key);
             }
 
-            if let Some(ca_cert) = cfg.ca_cert {
-                info!("loading ca-file={}", ca_cert);
-
-                builder.set_ca_file(ca_cert).unwrap();
+            if let Some(filename) = cfg.ca_cert {
+                let keyfile = fs::File::open(&filename).expect("cannot open private key file");
+                let mut reader = BufReader::new(keyfile);
+                let keys = rustls::internal::pemfile::certs(&mut reader).unwrap();
+                info!("loading ca-file={}", filename);
+                config.root_store.add(&keys[0]);
             } else {
                 // ~ allow client specify the CAs through the default paths:
                 // "These locations are read from the SSL_CERT_FILE and
                 // SSL_CERT_DIR environment variables if present, or defaults
                 // specified at OpenSSL build time otherwise."
-                builder.set_default_verify_paths().unwrap();
+                // builder.set_default_verify_paths().unwrap();
             }
-        }
-
-        let connector = builder.build();
+            config
+        };
 
         // ~ instantiate KafkaClient with the previous OpenSSL setup
-        let mut client = KafkaClient::new_secure(
-            cfg.brokers,
-            SecurityConfig::new(connector).with_hostname_verification(cfg.verify_hostname),
-        );
+        let mut client = KafkaClient::new_secure(cfg.brokers, SecurityConfig::new(rustls_config));
 
         // ~ communicate with the brokers
         match client.load_metadata_all() {

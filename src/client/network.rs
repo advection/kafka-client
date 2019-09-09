@@ -30,7 +30,8 @@ pub struct SecurityConfig {
 #[cfg(feature = "security")]
 impl SecurityConfig {
     /// In the future this will also support a kerbos via #51.
-    pub fn new(rustls_config: Arc<ClientConfig>) -> Self {
+    pub fn new(rustls_config: ClientConfig) -> Self {
+        let rustls_config = Arc::new(rustls_config);
         SecurityConfig { rustls_config }
     }
 
@@ -81,7 +82,7 @@ pub struct Config {
     rw_timeout: Option<Duration>,
     idle_timeout: Duration,
     #[cfg(feature = "security")]
-    security_config: Option<Arc<SecurityConfig>>,
+    security_config: Option<SecurityConfig>,
 }
 
 impl Config {
@@ -148,7 +149,7 @@ impl Connections {
     pub fn new_with_security(
         rw_timeout: Option<Duration>,
         idle_timeout: Duration,
-        security_config: Option<Arc<SecurityConfig>>,
+        security_config: Option<SecurityConfig>,
     ) -> Connections {
         Connections {
             conns: HashMap::new(),
@@ -385,7 +386,7 @@ impl KafkaConnection {
         id: u32,
         host: &str,
         rw_timeout: Option<Duration>,
-        security: Option<Arc<SecurityConfig>>,
+        security: Option<SecurityConfig>,
     ) -> Result<KafkaConnection> {
         let socket = TcpStream::connect(host)?;
         let stream = match security {

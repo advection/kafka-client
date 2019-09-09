@@ -65,7 +65,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
 use std::slice;
-use std::sync::Arc;
 use std::time::Duration;
 use twox_hash::XxHash32;
 
@@ -347,7 +346,7 @@ pub struct Builder<P = DefaultPartitioner> {
     conn_idle_timeout: Duration,
     required_acks: RequiredAcks,
     partitioner: P,
-    security_config: Option<Arc<SecurityConfig>>,
+    security_config: Option<SecurityConfig>,
     client_id: Option<String>,
 }
 
@@ -377,7 +376,7 @@ impl Builder {
     /// See `KafkaClient::new_secure` for more info.
     #[cfg(feature = "security")]
     pub fn with_security(mut self, security: SecurityConfig) -> Self {
-        self.security_config = Some(Arc::new(security));
+        self.security_config = Some(security);
         self
     }
 
@@ -445,7 +444,7 @@ impl<P> Builder<P> {
     }
 
     #[cfg(feature = "security")]
-    fn new_kafka_client(hosts: Vec<String>, security: Option<Arc<SecurityConfig>>) -> KafkaClient {
+    fn new_kafka_client(hosts: Vec<String>, security: Option<SecurityConfig>) -> KafkaClient {
         if let Some(security) = security {
             KafkaClient::new_secure(hosts, security)
         } else {
