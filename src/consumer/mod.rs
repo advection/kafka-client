@@ -171,7 +171,7 @@ impl Consumer {
         &self.config.group
     }
 
-    // ~ returns (number partitions queried, fecth responses)
+    // ~ returns (number partitions queried, fetch responses)
     fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>, Error>) {
         // ~ if there's a retry partition ... fetch messages just for
         // that one. Otherwise try to fetch messages for all assigned
@@ -180,7 +180,7 @@ impl Consumer {
             Some(tp) => {
                 let s = match self.state.fetch_offsets.get(&tp) {
                     Some(fstate) => fstate,
-                    None => return Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into())
+                    None => return(1, Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into())) // zlb: why store the error in s, strange
                 };
                 let topic = self.state.topic_name(tp.topic_ref);
                 debug!(
@@ -250,10 +250,10 @@ impl Consumer {
                     // certain errors and retry the fetch operation
                     // transparently for the caller.
                     let data = match p.data() {
-                        // XXX need to prevent updating fetch_offsets in case we're gonna fail here
-                        Err(ref e) => return Err(*e.into()),
-                        Ok(ref data) => data,
+                        Ok(d) => d ,
+                        Err(e) => { Err(e)? }
                     };
+                        // XXX need to prevent updating fetch_offsets in case we're gonna fail here
 
                     let mut fetch_state = self
                         .state

@@ -1164,7 +1164,7 @@ impl KafkaClient {
             if self.state.contains_topic_partition(o.topic, o.partition) {
                 req.add(o.topic, o.partition, o.offset, "");
             } else {
-                bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into() )
+                Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition))?
             }
         }
         if req.topic_partitions.is_empty() {
@@ -1303,7 +1303,7 @@ impl KafkaClientInternals for KafkaClient {
         for msg in messages {
             let msg = msg.as_ref();
             match state.find_broker(msg.topic, msg.partition) {
-                None => bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into()),
+                None => Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition))?,
                 Some(broker) => reqs
                     .entry(broker)
                     .or_insert_with(|| {
@@ -1355,11 +1355,18 @@ fn __get_group_coordinator<'a>(
             Ok(r) => {
                 return Ok(state.set_group_coordinator(group, &r));
             }
-            Err(Error(KafkaErrorKind::Kafka(e @ KafkaCode::GroupCoordinatorNotAvailable))) => {
-                retry_code = e;
-            }
+//            Err(Error(KafkaErrorKind::Kafka(e @ KafkaCode::GroupCoordinatorNotAvailable))) => {
+//                retry_code = e;
+//            }
+            // zlb: not sure how to properly unapply...
             Err(e) => {
-                return Err(e);
+                match e.downcast::<KafkaErrorKind>() {
+                    Ok(KafkaErrorKind::Kafka(c @ KafkaCode::GroupCoordinatorNotAvailable)) => {
+                        retry_code = c;
+                    }
+                    Ok(err) => { return Err(err.into()) }
+                    Err(error) => { return Err(error); }
+                }
             }
         }
         if attempt < config.retry_max_attempts {
@@ -1471,22 +1478,30 @@ fn __fetch_group_offsets(
                     Ok(o) => {
                         partition_offsets.push(o);
                     }
-                    Err(KafkaErrorKind::Kafka(e @ KafkaCode::GroupLoadInProgress)) => {
-                        retry_code = Some(e);
-                        break 'rproc;
-                    }
-                    Err(KafkaErrorKind::Kafka(e @ KafkaCode::NotCoordinatorForGroup)) => {
-                        debug!(
-                            "fetch_group_offsets: resetting group coordinator for '{}'",
-                            req.group
-                        );
-                        state.remove_group_coordinator(&req.group);
-                        retry_code = Some(e);
-                        break 'rproc;
-                    }
                     Err(e) => {
-                        // ~ immeditaly abort with the error
-                        return Err(e);
+                        match e.downcast::<KafkaErrorKind>() {
+                            Ok(KafkaErrorKind::Kafka(c @ KafkaCode::GroupLoadInProgress)) => {
+                                retry_code = Some(c);
+                                break 'rproc;
+                            }
+                            Ok(KafkaErrorKind::Kafka(e @ KafkaCode::NotCoordinatorForGroup)) => {
+                                debug!(
+                                    "fetch_group_offsets: resetting group coordinator for '{}'",
+                                    req.group
+                                );
+                                state.remove_group_coordinator(&req.group);
+                                retry_code = Some(e);
+                                break 'rproc;
+                            }
+                            Ok(err) => {
+                                // ~ immeditaly abort with the error
+                                Err(err)?;
+                            }
+                            Err(err) => {
+                                // ~ immeditaly abort with the error
+                                return Err(err);
+                            }
+                        }
                     }
                 }
             }

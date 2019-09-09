@@ -54,7 +54,7 @@ pub struct GroupCoordinatorResponse {
 
 impl GroupCoordinatorResponse {
     pub fn into_result(self) -> Result<Self, Error> {
-        match Error::from_protocol(self.error) {
+        match KafkaCode::from_protocol_as_error(self.error) {
             Some(e) => Err(e),
             None => Ok(self),
         }
@@ -199,8 +199,8 @@ pub struct PartitionOffsetFetchResponse {
 
 impl PartitionOffsetFetchResponse {
     pub fn get_offsets(&self) -> Result<PartitionOffset, Error> {
-        match Error::from_protocol(self.error) {
-            Some(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)) => {
+        match KafkaCode::from_protocol(self.error) {
+            Some(KafkaCode::UnknownTopicOrPartition) => {
                 // ~ occurs only on protocol v0 when no offset available
                 // for the group in question; we'll align the behavior
                 // with protocol v1.
@@ -209,7 +209,7 @@ impl PartitionOffsetFetchResponse {
                     offset: -1,
                 })
             }
-            Some(e) => Err(e),
+            Some(e) => Err(KafkaErrorKind::Kafka(e))?,
             None => Ok(PartitionOffset {
                 partition: self.partition,
                 offset: self.offset,

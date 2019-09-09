@@ -26,7 +26,7 @@ fn next_i32(mut slice: &[u8]) -> io::Result<i32> {
         return Err(io::ErrorKind::UnexpectedEof.into())
     }
     let n = BigEndian::read_i32(slice);
-    slice = &slice[4..];
+    slice = &slice[4..]; // zlb: is this right..? I guess this is the advancing part
     Ok(n)
 }
 
@@ -59,7 +59,7 @@ const MAGIC: &[u8] = &[0x82, b'S', b'N', b'A', b'P', b'P', b'Y', 0];
 fn validate_stream(mut stream: &[u8]) -> Result<&[u8], Error> {
     // ~ check the "header magic"
     if stream.len() < MAGIC.len() {
-        Err(io::ErrorKind::UnexpectedEof)? // zlb: I get it, lots of intos
+        Err(KafkaErrorKind::IoError(io::ErrorKind::UnexpectedEof.into()))? // zlb: I get it, lots of intos
     }
     if &stream[..MAGIC.len()] != MAGIC {
         Err(from_snap_error_ref(&snap::Error::Header))?

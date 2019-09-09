@@ -29,7 +29,7 @@ impl<'a> ZReader<'a> {
     /// whole. Upon failure the reader will _not_ advance.
     pub fn read<'b>(&'b mut self, n_bytes: usize) -> Result<&'a [u8], Error> {
         if n_bytes > self.data.len() {
-            bail!(KafkaErrorKind::IoError(io::ErrorKind::UnexpectedEof.into()).into()) // zlb: I get it, lots of intos
+            Err(KafkaErrorKind::IoError(io::ErrorKind::UnexpectedEof.into()))? // zlb: I get it, lots of intos
         } else {
             let (x, rest) = self.data.split_at(n_bytes);
             self.data = rest;

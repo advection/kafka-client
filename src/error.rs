@@ -15,7 +15,7 @@ use crate::failure::{Context, Backtrace};
 
 /// An error as reported by a remote Kafka server
 
-#[derive(Eq, PartialEq, Debug, Fail)]
+#[derive(Debug, Fail)]
 pub enum KafkaErrorKind {
 
     #[fail(display = "KafkaError: {:?}", _0)]

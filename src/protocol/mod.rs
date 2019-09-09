@@ -51,6 +51,12 @@ pub trait ResponseParser {
 }
 
 // --------------------------------------------------------------------
+//impl Error{
+//    fn from_protocol(n: i16) -> Option<KafkaCode> { // zlb: this used to use Error, not sure why.... changing to KafkaCode
+//        KafkaCode::from_protocol(n).map(|err| err.into())
+//    }
+//}
+
 
 impl KafkaCode {
     fn from_protocol(n: i16) -> Option<KafkaCode> {
@@ -61,6 +67,10 @@ impl KafkaCode {
             return Some(unsafe { mem::transmute(n as i8) });
         }
         Some(KafkaCode::Unknown)
+    }
+
+    fn from_protocol_as_error(n: i16) -> Option<Error> {
+        KafkaCode::from_protocol(n).map(|err| KafkaErrorKind::Kafka(err).into())
     }
 }
 

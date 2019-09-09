@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use std::io::Write;
+use std::io::{self, Write};
 use std::mem;
 
 use fnv::FnvHasher;
@@ -275,7 +275,7 @@ pub struct Partition<'a> {
     partition: i32,
 
     /// Either an error or the partition data.
-    data: Result<Data<'a>, Error>,
+    data: Result<Data<'a>, Error>
 }
 
 impl<'a> Partition<'a> {
@@ -289,20 +289,23 @@ impl<'a> Partition<'a> {
             .and_then(|preqs| preqs.get(partition))
             .map(|preq| preq.offset)
             .unwrap_or(0);
-        let err = Error::from_protocol(r.read_i16()?);
+        let err = KafkaCode::from_protocol_as_error(r.read_i16()?);
         // we need to parse the rest even if there was an error to
         // consume the input stream (zreader)
         let highwatermark = r.read_i64()?;
         let msgset = MessageSet::from_slice(r.read_bytes()?, proffs, validate_crc)?;
-        Ok(Partition {
+        let data = match err {
+            Some(error) => Err(error),
+            None => Ok(Data {
+                highwatermark_offset: highwatermark,
+                message_set: msgset,
+            }),
+        };
+        Ok(Partition {    // zlb: ok so this is kind of weird, and I'm starting to see some of the comments
+            // even if there is a failure pulling from kafka, we call it good but still encode the failure here
+            // this is ripe for some refactoring, or it has a larger question about how to handle retries from kafka
             partition,
-            data: match err {
-                Some(error) => Err(error),
-                None => Ok(Data {
-                    highwatermark_offset: highwatermark,
-                    message_set: msgset,
-                }),
-            },
+            data,
         })
     }
 
@@ -313,8 +316,8 @@ impl<'a> Partition<'a> {
     }
 
     /// Retrieves the data payload for this partition.
-    pub fn data(&'a self) -> &'a Result<Data<'a>, Error> {
-        &self.data
+    pub fn data(&'a self) -> Result<&'a Data<'a>, Error> {
+        self.data.map(|d| & d )
     }
 }
 
@@ -397,11 +400,22 @@ impl<'a> MessageSet<'a> {
                 // this is the last messages which might be
                 // incomplete; a valid case to be handled by
                 // consumers
-                Err(io::Error::UnexpectedEof) => {
-                    break;
-                }
+//                Err(io::ErrorKind::UnexpectedEof) => {
+  //                  break;
+    //            }
                 Err(e) => {
-                    return Err(e);
+                    match e.downcast::<io::Error>() {
+                        // zlb: ok I may actually need help on this one. Commenting out for now
+                        Ok(io_err) => {
+                            break;
+                        }
+//                        Ok(io_err) if io_err == io::ErrorKind::UnexpectedEof => {
+  //                          break;
+    //                    }
+                        Err(err) => {
+                            return Err(err);
+                        }
+                    }
                 }
                 Ok((offset, pmsg)) => {
                     // handle compression (denoted by the last 3 bits

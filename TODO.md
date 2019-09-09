@@ -6,4 +6,4 @@ Cleanup:
     - [ ] use the Default trait // zlb: is this what is referenced in [producer](./src/producer.rs) around line 100?
     - [ ] Investigate Error::clone(), why was non-exhaustive
     - [ ] Revisit: clippy::if_same_then_else
-    - [ ] Investigate adding snappy library and removing functionality
+    - [ ] Ensure error codes are up to date against the protocol
