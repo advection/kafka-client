@@ -1,7 +1,8 @@
 Cleanup:
+    - [ ] Swap error-chain for failure crate
+    - [ ] Setup CI, for unit & integration tests
     - [ ] Create design doc that lays out current design and desired outcome
     - [ ] Can we apply typestate pattern?
-    - [ ] Swap error-chain for failure crate
     - [ ] Comb through crate for poor design patterns
     - [ ] use the Default trait
     - [ ] Investigate Error::clone(), why was non-exhaustive
