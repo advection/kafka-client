@@ -416,30 +416,20 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// extern crate openssl;
-    /// extern crate kafka;
-    ///
-    /// use openssl::ssl::{SslConnectorBuilder, SslMethod, SSL_VERIFY_PEER};
-    /// use openssl::x509::X509_FILETYPE_PEM;
     /// use kafka::client::{KafkaClient, SecurityConfig};
     ///
     /// fn main() {
     ///     let (key, cert) = ("client.key".to_string(), "client.crt".to_string());
     ///
-    ///     // OpenSSL offers a variety of complex configurations. Here is an example:
-    ///     let mut builder = SslConnectorBuilder::new(SslMethod::tls()).unwrap();
-    ///     {
-    ///         let mut ctx = builder.builder_mut();
-    ///         ctx.set_cipher_list("DEFAULT").unwrap();
-    ///         ctx.set_certificate_file(&cert, X509_FILETYPE_PEM).unwrap();
-    ///         ctx.set_private_key_file(&key, X509_FILETYPE_PEM).unwrap();
-    ///         ctx.set_default_verify_paths().unwrap();
-    ///         ctx.set_verify(SSL_VERIFY_PEER);
-    ///     }
-    ///     let connector = builder.build();
+    ///     use rustls;
+    ///     use webpki;
+    ///     use webpki_roots;
+
+    ///     let mut rustls_config = rustls::ClientConfig::new();
+    ///     rustls_config.root_store.add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+
+    ///     let mut client = KafkaClient::new_secure(vec!["localhost:9092".to_string()], SecurityConfig::new(rustls_config));
     ///
-    ///     let mut client = KafkaClient::new_secure(vec!("localhost:9092".to_owned()),
-    ///                                              SecurityConfig::new(connector));
     ///     client.load_metadata_all().unwrap();
     /// }
     /// ```

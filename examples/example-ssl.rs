@@ -12,9 +12,8 @@ mod example {
 
     use std::env;
     use std::fs;
-    use std::io::{BufReader, Read, Write};
+    use std::io::BufReader;
     use std::process;
-    use std::sync::Arc;
 
     use kafka::client::{FetchOffset, KafkaClient, SecurityConfig};
 
@@ -30,7 +29,7 @@ mod example {
             }
         };
 
-        let mut rustls_config = {
+        let rustls_config = {
             let mut config = rustls::ClientConfig::new();
             config
                 .root_store
@@ -60,13 +59,10 @@ mod example {
                 let mut reader = BufReader::new(keyfile);
                 let keys = rustls::internal::pemfile::certs(&mut reader).unwrap();
                 info!("loading ca-file={}", filename);
-                config.root_store.add(&keys[0]);
-            } else {
-                // ~ allow client specify the CAs through the default paths:
-                // "These locations are read from the SSL_CERT_FILE and
-                // SSL_CERT_DIR environment variables if present, or defaults
-                // specified at OpenSSL build time otherwise."
-                // builder.set_default_verify_paths().unwrap();
+                config
+                    .root_store
+                    .add(&keys[0])
+                    .expect("unable to load ca_cert");
             }
             config
         };
@@ -86,7 +82,7 @@ mod example {
                 // metadata via a secured connection to one of the
                 // specified brokers
 
-                if client.topics().len() == 0 {
+                if client.topics().is_empty() {
                     println!("No topics available!");
                 } else {
                     // ~ now let's communicate with all the brokers in
@@ -120,7 +116,6 @@ mod example {
         client_cert: Option<String>,
         client_key: Option<String>,
         ca_cert: Option<String>,
-        verify_hostname: bool,
     }
 
     impl Config {
@@ -176,7 +171,6 @@ mod example {
                 client_cert: m.opt_str("client-cert"),
                 client_key: m.opt_str("client-key"),
                 ca_cert: m.opt_str("ca-cert"),
-                verify_hostname: !m.opt_present("no-hostname-verification"),
             })
         }
     }
