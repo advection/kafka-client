@@ -460,7 +460,7 @@ impl<'a> ProtocolMessage<'a> {
 
         // ~ optionally validate the crc checksum
         let msg_crc = r.read_i32()?;
-        if validate_crc && to_crc(r.rest()) as i32 != msg_crc {
+        if validate_crc && (to_crc(r.rest()) as i32) != msg_crc {
             bail!(ErrorKind::Kafka(KafkaCode::CorruptMessage));
         }
         // ~ we support parsing only messages with the "zero"

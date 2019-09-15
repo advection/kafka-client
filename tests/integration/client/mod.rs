@@ -2,16 +2,17 @@
 ///
 /// * compression
 /// * secure connections
-
 use super::*;
-use std::collections::HashSet;
-use std::collections::HashMap;
-use std::time::Duration;
-use kafka::client::{KafkaClient, CommitOffset, PartitionOffset, FetchPartition, ProduceMessage,
-                    RequiredAcks, FetchOffset};
 use kafka::client::fetch::Response;
+use kafka::client::{
+    CommitOffset, FetchOffset, FetchPartition, KafkaClient, PartitionOffset, ProduceMessage,
+    RequiredAcks,
+};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::time::Duration;
 
-fn flatten_fetched_messages(resps: &Vec<Response>) -> Vec<(&str, i32, &[u8])> {
+fn flatten_fetched_messages(resps: &[Response]) -> Vec<(&str, i32, &[u8])> {
     let mut messages = Vec::new();
 
     for resp in resps {
@@ -42,7 +43,8 @@ fn test_kafka_client_load_metadata() {
     assert_eq!(&client_id, client.client_id());
 
     // names
-    let topic_names: HashSet<&str> = topics.names()
+    let topic_names: HashSet<&str> = topics
+        .names()
         // don't count the consumer offsets internal topic
         .filter(|name| *name != KAFKA_CONSUMER_OFFSETS_TOPIC_NAME)
         .collect();
@@ -71,6 +73,7 @@ fn test_kafka_client_load_metadata() {
 /// * KafkaClient::fetch_messages
 /// * KafkaClient::fetch_offsets
 #[test]
+#[allow(clippy::block_in_if_condition_stmt)]
 fn test_produce_fetch_messages() {
     let mut client = new_ready_kafka_client();
     let topics = [TEST_TOPIC_NAME, TEST_TOPIC_NAME_2];
@@ -79,10 +82,10 @@ fn test_produce_fetch_messages() {
     // first send the messages and verify correct confirmation responses
     // from kafka
     let req = vec![
-        ProduceMessage::new(TEST_TOPIC_NAME, 0, None, Some("a".as_bytes())),
-        ProduceMessage::new(TEST_TOPIC_NAME, 1, None, Some("b".as_bytes())),
-        ProduceMessage::new(TEST_TOPIC_NAME_2, 0, None, Some("c".as_bytes())),
-        ProduceMessage::new(TEST_TOPIC_NAME_2, 1, None, Some("d".as_bytes())),
+        ProduceMessage::new(TEST_TOPIC_NAME, 0, None, Some(b"a")),
+        ProduceMessage::new(TEST_TOPIC_NAME, 1, None, Some(b"b")),
+        ProduceMessage::new(TEST_TOPIC_NAME_2, 0, None, Some(b"c")),
+        ProduceMessage::new(TEST_TOPIC_NAME_2, 1, None, Some(b"d")),
     ];
 
     let resp = client
@@ -98,13 +101,15 @@ fn test_produce_fetch_messages() {
         assert!(confirm.topic == TEST_TOPIC_NAME || confirm.topic == TEST_TOPIC_NAME_2);
         assert_eq!(2, confirm.partition_confirms.len());
 
-        assert!(confirm.partition_confirms.iter().any(|part_confirm| {
-            part_confirm.partition == 0 && part_confirm.offset.is_ok()
-        }));
+        assert!(confirm
+            .partition_confirms
+            .iter()
+            .any(|part_confirm| { part_confirm.partition == 0 && part_confirm.offset.is_ok() }));
 
-        assert!(confirm.partition_confirms.iter().any(|part_confirm| {
-            part_confirm.partition == 1 && part_confirm.offset.is_ok()
-        }));
+        assert!(confirm
+            .partition_confirms
+            .iter()
+            .any(|part_confirm| { part_confirm.partition == 1 && part_confirm.offset.is_ok() }));
 
         for part_confirm in confirm.partition_confirms.iter() {
             fetches.push(FetchPartition::new(
@@ -120,16 +125,16 @@ fn test_produce_fetch_messages() {
     let fetch_resps = client.fetch_messages(fetches).unwrap();
     let messages = flatten_fetched_messages(&fetch_resps);
 
-    let correct_messages = vec![
-        (TEST_TOPIC_NAME, 0, "a".as_bytes()),
-        (TEST_TOPIC_NAME, 1, "b".as_bytes()),
-        (TEST_TOPIC_NAME_2, 0, "c".as_bytes()),
-        (TEST_TOPIC_NAME_2, 1, "d".as_bytes()),
+    let correct_messages: Vec<(&str, _, &[u8])> = vec![
+        (TEST_TOPIC_NAME, 0, b"a"),
+        (TEST_TOPIC_NAME, 1, b"b"),
+        (TEST_TOPIC_NAME_2, 0, b"c"),
+        (TEST_TOPIC_NAME_2, 1, b"d"),
     ];
 
-    assert!(correct_messages.into_iter().all(|c_msg| {
-        messages.contains(&c_msg)
-    }));
+    assert!(correct_messages
+        .into_iter()
+        .all(|c_msg| { messages.contains(&c_msg) }));
 
     let end_latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).unwrap();
 
@@ -157,18 +162,14 @@ fn test_produce_fetch_messages() {
 fn test_commit_offset() {
     let mut client = new_ready_kafka_client();
 
-    for &(partition, offset) in
-        &[
-            (TEST_TOPIC_PARTITIONS[0], 100),
-            (TEST_TOPIC_PARTITIONS[1], 200),
-            (TEST_TOPIC_PARTITIONS[0], 300),
-            (TEST_TOPIC_PARTITIONS[1], 400),
-            (TEST_TOPIC_PARTITIONS[0], 500),
-            (TEST_TOPIC_PARTITIONS[1], 600),
-        ]
-    {
-
-
+    for &(partition, offset) in &[
+        (TEST_TOPIC_PARTITIONS[0], 100),
+        (TEST_TOPIC_PARTITIONS[1], 200),
+        (TEST_TOPIC_PARTITIONS[0], 300),
+        (TEST_TOPIC_PARTITIONS[1], 400),
+        (TEST_TOPIC_PARTITIONS[0], 500),
+        (TEST_TOPIC_PARTITIONS[1], 600),
+    ] {
         client
             .commit_offset(TEST_GROUP_NAME, TEST_TOPIC_NAME, partition, offset)
             .unwrap();
@@ -179,10 +180,7 @@ fn test_commit_offset() {
             .into_iter()
             .collect();
 
-        let correct_partition_offset = PartitionOffset {
-            partition: partition,
-            offset: offset,
-        };
+        let correct_partition_offset = PartitionOffset { partition, offset };
 
         assert!(partition_offsets.contains(&correct_partition_offset));
     }
@@ -232,7 +230,6 @@ fn test_commit_offsets() {
     ];
 
     for commit_pair in &commits {
-
         client.commit_offsets(TEST_GROUP_NAME, commit_pair).unwrap();
 
         let partition_offsets: HashSet<PartitionOffset> = client
@@ -252,8 +249,9 @@ fn test_commit_offsets() {
                 partition: commit_pair[1].partition,
                 offset: commit_pair[1].offset,
             },
-        ].into_iter()
-            .collect();
+        ]
+        .into_iter()
+        .collect();
 
         assert_eq!(correct_partition_offsets, partition_offsets);
     }
