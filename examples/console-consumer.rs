@@ -1,9 +1,7 @@
 extern crate env_logger;
 extern crate getopts;
-#[macro_use]
-extern crate error_chain;
 
-//#[macro_use] extern crate failure;
+#[macro_use] extern crate failure;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -96,9 +94,9 @@ struct Config {
     fallback_offset: FetchOffset,
 }
 
-fn required_list(m: Matches, opt: &str) -> Result<Vec<String, Error>, Error> {
+fn required_list(m: &Matches, opt: &str) -> Result<Vec<String>, Error> {
     let xs: Vec<String> = match m.opt_str(opt) {
-        None => bail!(format!("Required option --{} missing", opt)),
+        None => Err(format_err!("Required option --{} missing", opt))?,
         Some(s) => s
             .split(',')
             .map(|s| s.trim().to_owned())
@@ -106,7 +104,7 @@ fn required_list(m: Matches, opt: &str) -> Result<Vec<String, Error>, Error> {
             .collect(),
     };
     if xs.is_empty() {
-        bail!(format!("Invalid --{} specified!", opt));
+        Err(format_err!("Invalid --{} specified!", opt))?;
     }
     Ok(xs)
 }
@@ -147,8 +145,8 @@ impl Config {
             bail!(opts.usage(&brief));
         }
 
-        let brokers = required_list(m, "brokers")?;
-        let topics = required_list(m, "topics")?;
+        let brokers = required_list(&m, "brokers")?;
+        let topics = required_list(&m, "topics")?;
 
         let mut offset_storage = GroupOffsetStorage::Zookeeper;
         if let Some(s) = m.opt_str("storage") {

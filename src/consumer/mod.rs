@@ -251,7 +251,7 @@ impl Consumer {
                     // transparently for the caller.
                     let data = match p.data() {
                         Ok(d) => d ,
-                        Err(e) => { bail!(e) } // zlb: not ideal, would much rather be able to throw the actual error, but need to wire up copy and dependent errors don't do that
+                        Err( e) => {  bail!("kafka failed") } //bail!(e) } // zlb: not ideal, would much rather be able to throw the actual error, but need to wire up copy and dependent errors don't do that
                     };
                         // XXX need to prevent updating fetch_offsets in case we're gonna fail here
 
@@ -319,7 +319,7 @@ impl Consumer {
                                 // fetch size ... this is will fail
                                 // forever ... signal the problem to
                                 // the user
-                                bail!(KafkaErrorKind::Kafka(KafkaCode::MessageSizeTooLarge));
+                                Err(KafkaErrorKind::Kafka(KafkaCode::MessageSizeTooLarge))?;
                             }
                             // ~ if this consumer is subscribed to one
                             // partition only, there's no need to push
