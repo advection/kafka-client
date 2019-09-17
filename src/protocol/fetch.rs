@@ -275,7 +275,7 @@ pub struct Partition<'a> {
     partition: i32,
 
     /// Either an error or the partition data.
-    data: Result<Data<'a>, Error>
+    data: Result<Data<'a>, Error>,
 }
 
 impl<'a> Partition<'a> {
@@ -294,18 +294,20 @@ impl<'a> Partition<'a> {
         // consume the input stream (zreader)
         let highwatermark = r.read_i64()?;
         let msgset = MessageSet::from_slice(r.read_bytes()?, proffs, validate_crc)?;
-        let data = match err {
+        let data  = match err {
             Some(error) => Err(error),
-            None => Ok(Data {
-                highwatermark_offset: highwatermark,
-                message_set: msgset,
-            }),
+            None => {
+                Ok(Data {
+                    highwatermark_offset: highwatermark,
+                    message_set: msgset,
+                })
+            }
         };
         Ok(Partition {    // zlb: ok so this is kind of weird, and I'm starting to see some of the comments
             // even if there is a failure pulling from kafka, we call it good but still encode the failure here
             // this is ripe for some refactoring, or it has a larger question about how to handle retries from kafka
             partition,
-            data,
+            data
         })
     }
 
@@ -316,8 +318,8 @@ impl<'a> Partition<'a> {
     }
 
     /// Retrieves the data payload for this partition.
-    pub fn data(&'a self) -> Result<&'a Data<'a>, Error> {
-        self.data.map(|d| & d )
+    pub fn data(&'a self) -> Result<&'a Data<'a>, &Error> {
+        self.data.as_ref()
     }
 }
 

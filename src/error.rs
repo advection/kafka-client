@@ -288,11 +288,11 @@ impl fmt::Display for KafkaError {
 }
 
 
-impl KafkaError {
-    pub fn kind(&self) -> KafkaErrorKind {
-        *self.inner.get_context()
-    }
-}
+//impl KafkaError {
+//    pub fn kind(&self) -> KafkaErrorKind {
+//        *self.inner.get_context()
+//    }
+//}
 
 impl From<KafkaErrorKind> for KafkaError {
     fn from(kind: KafkaErrorKind) -> KafkaError {

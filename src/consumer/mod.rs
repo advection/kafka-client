@@ -251,7 +251,7 @@ impl Consumer {
                     // transparently for the caller.
                     let data = match p.data() {
                         Ok(d) => d ,
-                        Err(e) => { Err(e)? }
+                        Err(e) => { bail!(e) } // zlb: not ideal, would much rather be able to throw the actual error, but need to wire up copy and dependent errors don't do that
                     };
                         // XXX need to prevent updating fetch_offsets in case we're gonna fail here
 
