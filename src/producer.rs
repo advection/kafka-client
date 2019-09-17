@@ -99,9 +99,12 @@ impl AsBytes for () {
     }
 }
 
-// There seems to be some compiler issue with this:
+// Seems obvious to add the following but it would
+// mean upstream crates could make breaking changes.
 // impl<T: AsRef<[u8]>> AsBytes for T {
-//     fn as_bytes(&self) -> &[u8] { self.as_ref() }
+//     fn as_bytes(&self) -> &[u8] {
+//         self.as_ref()
+//     }
 // }
 
 // for now we provide the impl for some standard library types
@@ -110,18 +113,20 @@ impl AsBytes for String {
         self.as_ref()
     }
 }
+
 impl AsBytes for Vec<u8> {
     fn as_bytes(&self) -> &[u8] {
         self.as_ref()
     }
 }
 
-impl<'a> AsBytes for &'a [u8] {
+impl AsBytes for &[u8] {
     fn as_bytes(&self) -> &[u8] {
         self
     }
 }
-impl<'a> AsBytes for &'a str {
+
+impl AsBytes for &str {
     fn as_bytes(&self) -> &[u8] {
         str::as_bytes(self)
     }
@@ -440,7 +445,7 @@ impl<P> Builder<P> {
     }
 
     #[cfg(not(feature = "security"))]
-    fn new_kafka_client(hosts: Vec<String>, _: Option<SecurityConfig>) -> KafkaClient {
+    fn new_kafka_client(hosts: Vec<String>, _: Option<Arc<SecurityConfig>>) -> KafkaClient {
         KafkaClient::new(hosts)
     }
 

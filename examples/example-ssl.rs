@@ -9,15 +9,13 @@ fn main() {
 mod example {
     extern crate env_logger;
     extern crate getopts;
-    extern crate openssl;
 
     use std::env;
+    use std::fs;
+    use std::io::BufReader;
     use std::process;
 
     use kafka::client::{FetchOffset, KafkaClient, SecurityConfig};
-
-    use self::openssl::ssl::{SslConnectorBuilder, SslMethod, SSL_VERIFY_PEER};
-    use self::openssl::x509::X509_FILETYPE_PEM;
 
     pub fn main() {
         env_logger::init();
@@ -31,43 +29,46 @@ mod example {
             }
         };
 
-        // ~ OpenSSL offers a variety of complex configurations. Here is an example:
-        let mut builder = SslConnectorBuilder::new(SslMethod::tls()).unwrap();
-        {
-            builder.set_cipher_list("DEFAULT").unwrap();
-            builder.set_verify(SSL_VERIFY_PEER);
+        let rustls_config = {
+            let mut config = rustls::ClientConfig::new();
+            config
+                .root_store
+                .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
             if let (Some(ccert), Some(ckey)) = (cfg.client_cert, cfg.client_key) {
                 info!("loading cert-file={}, key-file={}", ccert, ckey);
+                let certs = {
+                    let file = fs::File::open(ccert).expect("cannot open private key file");
+                    let mut reader = BufReader::new(file);
+                    rustls::internal::pemfile::certs(&mut reader)
+                        .expect("unable to read certs file")
+                };
 
-                builder
-                    .set_certificate_file(ccert, X509_FILETYPE_PEM)
-                    .unwrap();
-                builder
-                    .set_private_key_file(ckey, X509_FILETYPE_PEM)
-                    .unwrap();
-                builder.check_private_key().unwrap();
+                let keys = {
+                    let file = fs::File::open(ckey).expect("cannot open private key file");
+                    let mut reader = BufReader::new(file);
+                    rustls::internal::pemfile::rsa_private_keys(&mut reader)
+                        .expect("unable to read key file")
+                };
+
+                let key = keys[0].clone();
+                config.set_single_client_cert(certs, key);
             }
 
-            if let Some(ca_cert) = cfg.ca_cert {
-                info!("loading ca-file={}", ca_cert);
-
-                builder.set_ca_file(ca_cert).unwrap();
-            } else {
-                // ~ allow client specify the CAs through the default paths:
-                // "These locations are read from the SSL_CERT_FILE and
-                // SSL_CERT_DIR environment variables if present, or defaults
-                // specified at OpenSSL build time otherwise."
-                builder.set_default_verify_paths().unwrap();
+            if let Some(filename) = cfg.ca_cert {
+                let keyfile = fs::File::open(&filename).expect("cannot open private key file");
+                let mut reader = BufReader::new(keyfile);
+                let keys = rustls::internal::pemfile::certs(&mut reader).unwrap();
+                info!("loading ca-file={}", filename);
+                config
+                    .root_store
+                    .add(&keys[0])
+                    .expect("unable to load ca_cert");
             }
-        }
-
-        let connector = builder.build();
+            config
+        };
 
         // ~ instantiate KafkaClient with the previous OpenSSL setup
-        let mut client = KafkaClient::new_secure(
-            cfg.brokers,
-            SecurityConfig::new(connector).with_hostname_verification(cfg.verify_hostname),
-        );
+        let mut client = KafkaClient::new_secure(cfg.brokers, SecurityConfig::new(rustls_config));
 
         // ~ communicate with the brokers
         match client.load_metadata_all() {
@@ -81,7 +82,7 @@ mod example {
                 // metadata via a secured connection to one of the
                 // specified brokers
 
-                if client.topics().len() == 0 {
+                if client.topics().is_empty() {
                     println!("No topics available!");
                 } else {
                     // ~ now let's communicate with all the brokers in
@@ -115,7 +116,6 @@ mod example {
         client_cert: Option<String>,
         client_key: Option<String>,
         ca_cert: Option<String>,
-        verify_hostname: bool,
     }
 
     impl Config {
@@ -171,7 +171,6 @@ mod example {
                 client_cert: m.opt_str("client-cert"),
                 client_key: m.opt_str("client-key"),
                 ca_cert: m.opt_str("ca-cert"),
-                verify_hostname: !m.opt_present("no-hostname-verification"),
             })
         }
     }

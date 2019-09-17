@@ -481,8 +481,8 @@ impl<'a> ProtocolMessage<'a> {
 
         // ~ optionally validate the crc checksum
         let msg_crc = r.read_i32()?;
-        if validate_crc && to_crc(r.rest()) as i32 != msg_crc {
-            bail!(KafkaErrorKind::Kafka(KafkaCode::CorruptMessage));
+        if validate_crc && (to_crc(r.rest()) as i32) != msg_crc {
+            bail!(ErrorKind::Kafka(KafkaCode::CorruptMessage));
         }
         // ~ we support parsing only messages with the "zero"
         // magic_byte; this covers kafka 0.8 and 0.9.
@@ -736,7 +736,7 @@ mod tests {
             true,
         ) {
             Ok(_) => panic!("Expected error, but got successful response!"),
-            Err(Error(ErrorKind::Kafka(KafkaCode::CorruptMessage), _)) => {}
+            Err(Error(ErrorKind::Kafka(KafkaCode::CorruptMessage), _)) => {} // ohh nice, test for me to mess with unapply yesss
             Err(e) => panic!("Expected KafkaCode::CorruptMessage error, but got: {:?}", e),
         }
     }

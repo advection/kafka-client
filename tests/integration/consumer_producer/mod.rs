@@ -4,13 +4,13 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use kafka;
-use kafka::producer::{Producer, RequiredAcks};
-use kafka::producer::Record;
 use kafka::client::{FetchOffset, PartitionOffset};
 use kafka::consumer::Consumer;
+use kafka::producer::Record;
+use kafka::producer::{Producer, RequiredAcks};
 
 use rand;
-use rand::Rng;
+use rand::RngCore;
 
 const RANDOM_MESSAGE_SIZE: usize = 32;
 
@@ -28,8 +28,7 @@ pub fn test_producer() -> Producer {
 /// TODO: This can go away if we don't use the builder pattern.
 macro_rules! test_consumer_config {
     ( $x:expr ) => {
-        $x
-            .with_topic_partitions(TEST_TOPIC_NAME.to_owned(), &TEST_TOPIC_PARTITIONS)
+        $x.with_topic_partitions(TEST_TOPIC_NAME.to_owned(), &TEST_TOPIC_PARTITIONS)
             .with_group(TEST_GROUP_NAME.to_owned())
             .with_fallback_offset(kafka::consumer::FetchOffset::Latest)
             .with_offset_storage(kafka::consumer::GroupOffsetStorage::Kafka)
@@ -38,7 +37,9 @@ macro_rules! test_consumer_config {
 
 /// Return a Consumer builder with some defaults
 pub fn test_consumer_builder() -> kafka::consumer::Builder {
-    test_consumer_config!(Consumer::from_hosts(vec![LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()]))
+    test_consumer_config!(Consumer::from_hosts(vec![
+        LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()
+    ]))
 }
 
 pub fn test_consumer() -> Consumer {
@@ -110,10 +111,9 @@ pub(crate) fn get_group_offsets(
         .unwrap()
         .iter()
         .map(|po| {
-            let offset = if default_offset.is_some() && po.offset == -1 {
-                default_offset.unwrap()
-            } else {
-                po.offset
+            let offset = match default_offset {
+                Some(off) if po.offset == -1 => off,
+                _ => po.offset,
             };
 
             (po.partition, offset)
@@ -136,5 +136,5 @@ pub(crate) fn diff_group_offsets(older: &HashMap<i32, i64>, newer: &HashMap<i32,
         .sum()
 }
 
-mod producer;
 mod consumer;
+mod producer;

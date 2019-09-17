@@ -5,10 +5,7 @@ use std::io;
 use std::fmt;
 
 #[cfg(feature = "security")]
-use openssl::error::ErrorStack;
-#[cfg(feature = "security")]
-use openssl::ssl::{self, Error as SslError};
-#[cfg(feature = "security")]
+use rustls::TLSError;
 
 use failure::Fail;
 use crate::failure::{Context, Backtrace};
@@ -17,7 +14,8 @@ use crate::failure::{Context, Backtrace};
 
 #[derive(Debug, Fail)]
 pub enum KafkaErrorKind {
-
+#[cfg(feature = "security")]
+// The various errors this library can produce.
     #[fail(display = "KafkaError: {:?}", _0)]
      Kafka(KafkaCode),
 
@@ -73,11 +71,7 @@ pub enum KafkaErrorKind {
 
     #[cfg(feature = "security")]
     #[fail(display = "{}", _0)]
-    SSLError(#[fail(cause)] SslError),
-
-    #[cfg(feature = "security")]
-    #[fail(display = "{}", _0)]
-    SSLHandshakeError(#[fail(cause)] ErrorStack),
+    TlsError(#[fail(cause)] TLSError),
 }
 
 
@@ -261,32 +255,13 @@ pub enum KafkaCode {
     UnsupportedVersion = 35,
 }
 
-/*#[cfg(feature = "security")]
-impl<S> From<ssl::HandshakeError<S>> for Error {
-    fn from(err: ssl::HandshakeError<S>) -> Error {
-        match err {
-            ssl::HandshakeError::SetupFailure(e) => From::from(e),
-            ssl::HandshakeError::Failure(s) | ssl::HandshakeError::Interrupted(s) => {
-                from_sslerror_ref(s.error()).into()
-            }
-        }
-    }
-}
-*/
 
 #[cfg(feature = "security")]
-fn from_sslerror_ref(err: &ssl::Error) -> KafkaErrorKind {
-    match err {
-        SslError::ZeroReturn => KafkaErrorKind::SSLError(SslError::ZeroReturn),
-        SslError::WantRead(ref e) => KafkaErrorKind::SSLError(SslError::WantRead(clone_ioe(e))),
-        SslError::WantWrite(ref e) => KafkaErrorKind::SSLError(SslError::WantWrite(clone_ioe(e))),
-        SslError::WantX509Lookup => KafkaErrorKind::SSLError(SslError::WantX509Lookup),
-        SslError::Stream(ref e) => KafkaErrorKind::SSLError(SslError::Stream(clone_ioe(e))),
-        SslError::Ssl(ref es) => KafkaErrorKind::SSLError(SslError::Ssl(es.clone())),
+impl From<&TLSError> for Error {
+    fn from(err: &TLSError) -> KafkaErrorKind {
+        Error::from_kind(ErrorKind::TLSError(err.clone()))
     }
 }
-
-
 
 /// Attempt to clone `io::Error`.
 fn clone_ioe(e: &io::Error) -> io::Error {

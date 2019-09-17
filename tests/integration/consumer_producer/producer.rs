@@ -7,7 +7,7 @@ use kafka::producer::Record;
 fn test_producer_send() {
     let mut producer = test_producer();
     producer
-        .send(&Record::from_value(TEST_TOPIC_NAME, "foo".as_bytes()))
+        .send(&Record::from_value(TEST_TOPIC_NAME, b"foo".as_ref()))
         .unwrap();
 }
 
@@ -17,14 +17,18 @@ fn test_producer_send_non_existent_topic() {
     let mut producer = test_producer();
 
     let error_code = match producer
-        .send(&Record::from_value("non-topic", "foo".as_bytes()))
-        .unwrap_err() {
-        error::Error(error::KafkaError::Kafka(code), _) => code,
+        .send(&Record::from_value("non-topic", b"foo".as_ref()))
+        .unwrap_err()
+    {
+        error::Error(error::ErrorKind::Kafka(code), _) => code,
         _ => panic!("Should have received Kafka error"),
     };
 
     let correct_error_code = error::KafkaCode::UnknownTopicOrPartition;
-    assert_eq!(correct_error_code, error_code, "should have errored on non-existent topic");
+    assert_eq!(
+        correct_error_code, error_code,
+        "should have errored on non-existent topic"
+    );
 }
 
 /// Simple test for send_all
@@ -32,8 +36,8 @@ fn test_producer_send_non_existent_topic() {
 fn test_producer_send_all() {
     let mut producer = test_producer();
     let records = &[
-        Record::from_value(TEST_TOPIC_NAME, "foo".as_bytes()),
-        Record::from_value(TEST_TOPIC_NAME, "bar".as_bytes()),
+        Record::from_value(TEST_TOPIC_NAME, b"foo".as_ref()),
+        Record::from_value(TEST_TOPIC_NAME, b"bar".as_ref()),
     ];
     let confirms = producer.send_all(records).unwrap();
 
@@ -43,7 +47,10 @@ fn test_producer_send_all() {
         for partition_confirm in confirm.partition_confirms {
             assert!(
                 partition_confirm.offset.is_ok(),
-                format!("should have sent successfully. Got: {:?}", partition_confirm.offset)
+                format!(
+                    "should have sent successfully. Got: {:?}",
+                    partition_confirm.offset
+                )
             );
         }
     }
@@ -54,8 +61,8 @@ fn test_producer_send_all() {
 fn test_producer_send_all_non_existent_topic() {
     let mut producer = test_producer();
     let records = &[
-        Record::from_value("foo-topic", "foo".as_bytes()),
-        Record::from_value("bar-topic", "bar".as_bytes()),
+        Record::from_value("foo-topic", b"foo".as_ref()),
+        Record::from_value("bar-topic", b"bar".as_ref()),
     ];
 
     let error_code = match producer.send_all(records).unwrap_err() {
@@ -64,5 +71,8 @@ fn test_producer_send_all_non_existent_topic() {
     };
 
     let correct_error_code = error::KafkaCode::UnknownTopicOrPartition;
-    assert_eq!(correct_error_code, error_code, "should have errored on non-existent topic");
+    assert_eq!(
+        correct_error_code, error_code,
+        "should have errored on non-existent topic"
+    );
 }
