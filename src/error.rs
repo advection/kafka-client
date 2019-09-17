@@ -71,7 +71,7 @@ pub enum KafkaErrorKind {
 
     #[cfg(feature = "security")]
     #[fail(display = "{}", _0)]
-    TlsError(#[fail(cause)] TLSError),
+    TLSError(#[fail(cause)] TLSError),
 }
 
 
@@ -257,9 +257,9 @@ pub enum KafkaCode {
 
 
 #[cfg(feature = "security")]
-impl From<&TLSError> for Error {
+impl From<&TLSError> for KafkaErrorKind {
     fn from(err: &TLSError) -> KafkaErrorKind {
-        Error::from_kind(ErrorKind::TLSError(err.clone()))
+        KafkaErrorKind::TLSError(err.clone())
     }
 }
 
