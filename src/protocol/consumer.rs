@@ -3,7 +3,7 @@ use crate::codecs::ToByte;
 use std::io::{Read, Write};
 
 use crate::codecs::{self};
-use crate::error::{self, KafkaErrorKind, KafkaCode};
+use crate::error::{self, KafkaErrorKind, KafkaErrorCode};
 use failure::Error;
 use crate::utils::PartitionOffset;
 
@@ -54,8 +54,8 @@ pub struct GroupCoordinatorResponse {
 
 impl GroupCoordinatorResponse {
     pub fn into_result(self) -> Result<Self, Error> {
-        match KafkaCode::from_protocol_as_error(self.error) {
-            Some(e) => Err(e),
+        match KafkaErrorCode::from_protocol_as_error(self.error) {
+            Some(e) => Err(e.into()),
             None => Ok(self),
         }
     }
@@ -199,8 +199,8 @@ pub struct PartitionOffsetFetchResponse {
 
 impl PartitionOffsetFetchResponse {
     pub fn get_offsets(&self) -> Result<PartitionOffset, Error> {
-        match KafkaCode::from_protocol(self.error) {
-            Some(KafkaCode::UnknownTopicOrPartition) => {
+        match KafkaErrorCode::from_protocol(self.error) {
+            Some(KafkaErrorCode::UnknownTopicOrPartition) => {
                 // ~ occurs only on protocol v0 when no offset available
                 // for the group in question; we'll align the behavior
                 // with protocol v1.
@@ -421,8 +421,8 @@ pub struct PartitionOffsetCommitResponse {
 }
 
 impl PartitionOffsetCommitResponse {
-    pub fn to_error(&self) -> Option<error::KafkaCode> {
-        error::KafkaCode::from_protocol(self.error)
+    pub fn to_error(&self) -> Option<error::KafkaErrorCode> {
+        error::KafkaErrorCode::from_protocol(self.error)
     }
 }
 

@@ -8,7 +8,7 @@ use fnv::FnvHasher;
 
 use crate::client::{FetchGroupOffset, FetchOffset, KafkaClient};
 use crate::failure::Error;
-use crate::error::{KafkaErrorKind, KafkaCode};
+use crate::error::{KafkaErrorKind, KafkaErrorCode};
 
 use super::assignment::{Assignment, AssignmentRef, Assignments};
 use super::config::Config;
@@ -153,7 +153,7 @@ fn determine_partitions<'a>(
                 "determine_partitions: no such topic: {} (all metadata: {:?})",
                 topic, metadata
             );
-            bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
+            bail!(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition));
         }
         Some(tp) => tp,
     };
@@ -176,7 +176,7 @@ fn determine_partitions<'a>(
                          (all metadata: {:?})",
                         topic, p, metadata
                     );
-                    bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
+                    bail!(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition));
                 }
                 Some(_) => ps.push(p),
             };
@@ -287,7 +287,7 @@ fn load_fetch_states(
                         "load_fetch_states: failed to load fallback offsets for: {}",
                         s.assignment.topic()
                     );
-                    bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
+                    bail!(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition));
                 }
                 Some(offsets) => {
                     for p in &s.partitions {
@@ -345,7 +345,7 @@ fn load_fetch_states(
                                 s.assignment.topic(),
                                 p
                             );
-                            bail!(KafkaErrorKind::Kafka(KafkaCode::Unknown));
+                            bail!(KafkaErrorKind::Kafka(KafkaErrorCode::Unknown));
                         }
                     },
                 };

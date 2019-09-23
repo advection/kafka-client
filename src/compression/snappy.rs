@@ -202,14 +202,17 @@ impl<'a> Read for SnappyReader<'a> {
 #[cfg(test)]
 mod tests {
     use std::io::Read;
+    use std::io;
     use std::str;
+    use failure::Error;
 
     use super::{compress, uncompress_to, SnappyReader};
-    use crate::error::{Error, ErrorKind, Result};
+    use crate::error::KafkaErrorKind;
 
-    fn uncompress(src: &[u8]) -> Result<Vec<u8>, Error> {
+    fn uncompress(src: &[u8]) -> io::Result<Vec<u8>> {
         let mut v = Vec::new();
-        uncompress_to(src, &mut v)
+        uncompress_to(src, &mut v)?;
+        Ok(v)
     }
 
     #[test]
@@ -240,13 +243,12 @@ mod tests {
         ];
         let uncompressed = uncompress(compressed);
         assert!(uncompressed.is_err());
-        assert!(
-            if let Some(Error(ErrorKind::InvalidSnappy(_), _)) = uncompressed.err() {
-                true
-            } else {
-                false
+        assert! {
+            match uncompressed.err() {
+                None => false,
+                Some(e) => true
             }
-        );
+        };
     }
 
     static ORIGINAL: &str = include_str!("../../test-data/fetch1.txt");

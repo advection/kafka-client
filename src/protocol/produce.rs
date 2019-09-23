@@ -7,7 +7,7 @@ use crate::compression::gzip;
 use crate::compression::snappy;
 use crate::compression::Compression;
 
-use crate::error::KafkaCode;
+use crate::error::KafkaErrorCode;
 use crate::failure::Error;
 
 use super::to_crc;
@@ -284,7 +284,7 @@ impl PartitionProduceResponse {
     pub fn get_response(&self) -> ProducePartitionConfirm {
         ProducePartitionConfirm {
             partition: self.partition,
-            offset: match KafkaCode::from_protocol(self.error) {
+            offset: match KafkaErrorCode::from_protocol(self.error) {
                 None => Ok(self.offset),
                 Some(code) => Err(code),
             },

@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use super::{HeaderRequest, HeaderResponse};
 use super::{API_KEY_OFFSET, API_VERSION};
 use crate::codecs::{FromByte, ToByte};
-use crate::error::KafkaCode;
+use crate::error::KafkaErrorCode;
 use crate::failure::Error;
 use crate::utils::PartitionOffset;
 use std;
@@ -119,8 +119,8 @@ pub struct PartitionOffsetResponse {
 }
 
 impl PartitionOffsetResponse {
-    pub fn to_offset(&self) -> std::result::Result<PartitionOffset, KafkaCode> {
-        match KafkaCode::from_protocol(self.error) {
+    pub fn to_offset(&self) -> std::result::Result<PartitionOffset, KafkaErrorCode> {
+        match KafkaErrorCode::from_protocol(self.error) {
             Some(code) => Err(code),
             None => {
                 let offset = match self.offset.first() {

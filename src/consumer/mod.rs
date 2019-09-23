@@ -73,7 +73,7 @@ pub use self::builder::Builder;
 pub use crate::client::fetch::Message;
 pub use crate::client::FetchOffset;
 pub use crate::client::GroupOffsetStorage;
-use crate::error::{KafkaCode, KafkaErrorKind};
+use crate::error::{KafkaErrorCode, KafkaErrorKind};
 
 mod assignment;
 mod builder;
@@ -180,7 +180,7 @@ impl Consumer {
             Some(tp) => {
                 let s = match self.state.fetch_offsets.get(&tp) {
                     Some(fstate) => fstate,
-                    None => return(1, Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into())) // zlb: why store the error in s, strange
+                    None => return(1, Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into())) // zlb: why store the error in s, strange
                 };
                 let topic = self.state.topic_name(tp.topic_ref);
                 debug!(
@@ -319,7 +319,7 @@ impl Consumer {
                                 // fetch size ... this is will fail
                                 // forever ... signal the problem to
                                 // the user
-                                Err(KafkaErrorKind::Kafka(KafkaCode::MessageSizeTooLarge))?;
+                                Err(KafkaErrorKind::Kafka(KafkaErrorCode::MessageSizeTooLarge))?;
                             }
                             // ~ if this consumer is subscribed to one
                             // partition only, there's no need to push
@@ -375,7 +375,7 @@ impl Consumer {
     /// being consumed by this consumer.
     pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<(), Error> {
         let topic_ref = match self.state.topic_ref(topic) {
-            None => bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
+            None => bail!(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition)),
             Some(topic_ref) => topic_ref,
         };
         let tp = state::TopicPartition {

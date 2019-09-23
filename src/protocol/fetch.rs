@@ -18,7 +18,7 @@ use crate::compression::gzip;
 #[cfg(feature = "snappy")]
 use crate::compression::snappy::SnappyReader;
 use crate::compression::Compression;
-use crate::error::{KafkaCode, KafkaErrorKind };
+use crate::error::{KafkaErrorCode, KafkaErrorKind };
 use crate::failure::Error;
 
 pub type PartitionHasher = BuildHasherDefault<FnvHasher>;
@@ -275,7 +275,7 @@ pub struct Partition<'a> {
     partition: i32,
 
     /// Either an error or the partition data.
-    data: Result<Data<'a>, Error>,
+    data: Result<Data<'a>, KafkaErrorCode>,
 }
 
 impl<'a> Partition<'a> {
@@ -289,7 +289,7 @@ impl<'a> Partition<'a> {
             .and_then(|preqs| preqs.get(partition))
             .map(|preq| preq.offset)
             .unwrap_or(0);
-        let err = KafkaCode::from_protocol_as_error(r.read_i16()?);
+        let err = KafkaErrorCode::from_protocol_as_error(r.read_i16()?);
         // we need to parse the rest even if there was an error to
         // consume the input stream (zreader)
         let highwatermark = r.read_i64()?;
@@ -318,7 +318,7 @@ impl<'a> Partition<'a> {
     }
 
     /// Retrieves the data payload for this partition.
-    pub fn data(&'a self) -> Result<&'a Data<'a>, &Error> {
+    pub fn data(&'a self) -> Result<&'a Data<'a>, &KafkaErrorCode> {
         self.data.as_ref()
     }
 }
@@ -484,7 +484,7 @@ impl<'a> ProtocolMessage<'a> {
         // ~ optionally validate the crc checksum
         let msg_crc = r.read_i32()?;
         if validate_crc && (to_crc(r.rest()) as i32) != msg_crc {
-            bail!(KafkaErrorKind::Kafka(KafkaCode::CorruptMessage));
+            bail!(KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage));
         }
         // ~ we support parsing only messages with the "zero"
         // magic_byte; this covers kafka 0.8 and 0.9.
@@ -513,7 +513,7 @@ mod tests {
     use std::str;
 
     use super::{FetchRequest, Message, Response};
-    use crate::error::{KafkaErrorKind, KafkaCode};
+    use crate::error::{KafkaErrorKind, KafkaErrorCode};
 
     static FETCH1_TXT: &str = include_str!("../../test-data/fetch1.txt");
 
@@ -550,10 +550,10 @@ mod tests {
         for t in r.topics() {
             for p in t.partitions() {
                 match p.data() {
-                    &Err(_) => {
+                    Err(_) => {
                         println!("Skipping error partition: {}:{}", t.topic, p.partition);
                     }
-                    &Ok(ref data) => {
+                    Ok(ref data) => {
                         all_msgs.extend(data.messages());
                     }
                 }
@@ -739,11 +739,12 @@ mod tests {
         ) {
             Ok(_) => panic!("Expected error, but got successful response!"),
             Err(e) => {
-                match e.downcast::<KafkaCode::CorruptMessage>() {
-                    Ok(_) => {}
+                match e.downcast::<KafkaErrorCode>() {
+                    Ok(k @ KafkaErrorCode::CorruptMessage) => {},
+                    Ok(other) => panic!("Expected KafkaCode::CorruptMessage error, but got: {:?}", other),
                     Err(other) => panic!("Expected KafkaCode::CorruptMessage error, but got: {:?}", other)
                 }
-            },
+            }
         }
     }
 

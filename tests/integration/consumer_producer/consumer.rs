@@ -211,7 +211,7 @@ fn test_consumer_non_existent_topic() {
         _ => panic!("Should have received Kafka error"),
     };
 
-    let correct_error_code = error::KafkaCode::UnknownTopicOrPartition;
+    let correct_error_code = error::KafkaErrorCode::UnknownTopicOrPartition;
     assert_eq!(
         correct_error_code, error_code,
         "should have errored on non-existent topic"

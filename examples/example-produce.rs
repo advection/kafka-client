@@ -2,7 +2,6 @@ extern crate env_logger;
 
 use std::time::Duration;
 
-use kafka::error::Error as KafkaError;
 use kafka::producer::{Producer, Record, RequiredAcks};
 
 /// This program demonstrates sending single message through a

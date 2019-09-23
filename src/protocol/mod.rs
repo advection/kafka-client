@@ -3,7 +3,7 @@ use std::mem;
 use std::time::Duration;
 
 use crate::codecs::{FromByte, ToByte};
-use crate::error::{KafkaCode, KafkaErrorKind};
+use crate::error::{KafkaErrorCode, KafkaErrorKind};
 use crate::failure::Error;
 use crc::crc32;
 
@@ -52,25 +52,25 @@ pub trait ResponseParser {
 
 // --------------------------------------------------------------------
 //impl Error{
-//    fn from_protocol(n: i16) -> Option<KafkaCode> { // zlb: this used to use Error, not sure why.... changing to KafkaCode
-//        KafkaCode::from_protocol(n).map(|err| err.into())
+//    fn from_protocol(n: i16) -> Option<KafkaErrorCode> { // zlb: this used to use Error, not sure why.... changing to KafkaErrorCode
+//        KafkaErrorCode::from_protocol(n).map(|err| err.into())
 //    }
 //}
 
 
-impl KafkaCode {
-    fn from_protocol(n: i16) -> Option<KafkaCode> {
+impl KafkaErrorCode {
+    fn from_protocol(n: i16) -> Option<KafkaErrorCode> {
         if n == 0 {
             return None;
         }
-        if n >= KafkaCode::OffsetOutOfRange as i16 && n <= KafkaCode::UnsupportedVersion as i16 {
+        if n >= KafkaErrorCode::OffsetOutOfRange as i16 && n <= KafkaErrorCode::UnsupportedVersion as i16 {
             return Some(unsafe { mem::transmute(n as i8) });
         }
-        Some(KafkaCode::Unknown)
+        Some(KafkaErrorCode::Unknown)
     }
 
-    fn from_protocol_as_error(n: i16) -> Option<Error> {
-        KafkaCode::from_protocol(n).map(|err| KafkaErrorKind::Kafka(err).into())
+    fn from_protocol_as_error(n: i16) -> Option<KafkaErrorCode> {
+        KafkaErrorCode::from_protocol(n)
     }
 }
 
@@ -80,7 +80,7 @@ fn test_kafka_code_from_protocol() {
 
     macro_rules! assert_kafka_code {
         ($kcode:path, $n:expr) => {
-            assert!(if let Some($kcode) = KafkaCode::from_protocol($n) {
+            assert!(if let Some($kcode) = KafkaErrorCode::from_protocol($n) {
                 true
             } else {
                 false
@@ -88,29 +88,29 @@ fn test_kafka_code_from_protocol() {
         };
     };
 
-    assert!(if let None = KafkaCode::from_protocol(0) {
+    assert!(if let None = KafkaErrorCode::from_protocol(0) {
         true
     } else {
         false
     });
     assert_kafka_code!(
-        KafkaCode::OffsetOutOfRange,
-        KafkaCode::OffsetOutOfRange as i16
+        KafkaErrorCode::OffsetOutOfRange,
+        KafkaErrorCode::OffsetOutOfRange as i16
     );
     assert_kafka_code!(
-        KafkaCode::IllegalGeneration,
-        KafkaCode::IllegalGeneration as i16
+        KafkaErrorCode::IllegalGeneration,
+        KafkaErrorCode::IllegalGeneration as i16
     );
     assert_kafka_code!(
-        KafkaCode::UnsupportedVersion,
-        KafkaCode::UnsupportedVersion as i16
+        KafkaErrorCode::UnsupportedVersion,
+        KafkaErrorCode::UnsupportedVersion as i16
     );
-    assert_kafka_code!(KafkaCode::Unknown, KafkaCode::Unknown as i16);
+    assert_kafka_code!(KafkaErrorCode::Unknown, KafkaErrorCode::Unknown as i16);
     // ~ test some un mapped non-zero codes; should all map to "unknown"
-    assert_kafka_code!(KafkaCode::Unknown, i16::MAX);
-    assert_kafka_code!(KafkaCode::Unknown, i16::MIN);
-    assert_kafka_code!(KafkaCode::Unknown, -100);
-    assert_kafka_code!(KafkaCode::Unknown, 100);
+    assert_kafka_code!(KafkaErrorCode::Unknown, i16::MAX);
+    assert_kafka_code!(KafkaErrorCode::Unknown, i16::MIN);
+    assert_kafka_code!(KafkaErrorCode::Unknown, -100);
+    assert_kafka_code!(KafkaErrorCode::Unknown, 100);
 }
 
 // --------------------------------------------------------------------
@@ -181,7 +181,7 @@ pub fn to_millis_i32(d: Duration) -> Result<i32, Error> {
         .saturating_mul(1_000)
         .saturating_add(u64::from(d.subsec_millis()));
     if m > i32::MAX as u64 {
-        bail!(KafkaErrorKind::InvalidDuration)
+        Err(KafkaErrorKind::InvalidDuration)?
     } else {
         Ok(m as i32)
     }
@@ -193,7 +193,13 @@ fn test_to_millis_i32() {
 
     fn assert_invalid(d: Duration) {
         match to_millis_i32(d) {
-            Err(Error(KafkaErrorKind::InvalidDuration)) => {}
+            Err(e) => {
+                match e.downcast::<KafkaErrorKind>() {
+                    Ok(c @ KafkaErrorKind::InvalidDuration) => {},
+                    Ok(other) => panic!("Expected Err(InvalidDuration) but got {:?}", other),
+                    Err(other) => panic!("Expected Err(InvalidDuration) but got {:?}", other),
+                }
+            }
             other => panic!("Expected Err(InvalidDuration) but got {:?}", other),
         }
     }

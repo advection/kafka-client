@@ -23,7 +23,7 @@ mod network;
 pub use network::SecurityConfig;
 
 use super::codecs::{FromByte, ToByte};
-use super::error::{KafkaCode, KafkaErrorKind};
+use super::error::{KafkaErrorCode, KafkaErrorKind};
 use super::protocol::{self, ResponseParser};
 
 use crate::client_internals::KafkaClientInternals;
@@ -367,7 +367,7 @@ pub struct ProduceConfirm {
 pub struct ProducePartitionConfirm {
     /// The offset assigned to the first message in the message set appended
     /// to this partition, or an error if one occurred.
-    pub offset: std::result::Result<i64, KafkaCode>,
+    pub offset: std::result::Result<i64, KafkaErrorCode>,
 
     /// The partition to which the message(s) were appended.
     pub partition: i32,
@@ -942,7 +942,7 @@ impl KafkaClient {
         let mut m = self.fetch_offsets(&[topic], offset)?;
         let offs = m.remove(topic).unwrap_or_default();
         if offs.is_empty() {
-            return Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into() )
+            return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into() )
         } else {
             Ok(offs)
         }
@@ -1154,7 +1154,7 @@ impl KafkaClient {
             if self.state.contains_topic_partition(o.topic, o.partition) {
                 req.add(o.topic, o.partition, o.offset, "");
             } else {
-                Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition))?
+                Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?
             }
         }
         if req.topic_partitions.is_empty() {
@@ -1227,7 +1227,7 @@ impl KafkaClient {
             if self.state.contains_topic_partition(p.topic, p.partition) {
                 req.add(p.topic, p.partition);
             } else {
-                return Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into() );
+                return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into() );
             }
         }
         __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)
@@ -1257,7 +1257,7 @@ impl KafkaClient {
         );
 
         match self.state.partitions_for(topic) {
-            None => bail!(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
+            None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
             Some(tp) => {
                 for (id, _) in tp {
                     req.add(topic, id);
@@ -1293,7 +1293,7 @@ impl KafkaClientInternals for KafkaClient {
         for msg in messages {
             let msg = msg.as_ref();
             match state.find_broker(msg.topic, msg.partition) {
-                None => Err(KafkaErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition))?,
+                None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
                 Some(broker) => reqs
                     .entry(broker)
                     .or_insert_with(|| {
@@ -1351,7 +1351,7 @@ fn __get_group_coordinator<'a>(
             // zlb: not sure how to properly unapply...
             Err(e) => {
                 match e.downcast::<KafkaErrorKind>() {
-                    Ok(KafkaErrorKind::Kafka(c @ KafkaCode::GroupCoordinatorNotAvailable)) => {
+                    Ok(KafkaErrorKind::Kafka(c @ KafkaErrorCode::GroupCoordinatorNotAvailable)) => {
                         retry_code = c;
                     }
                     Ok(err) => { return Err(err.into()) }
@@ -1398,11 +1398,11 @@ fn __commit_offsets(
             for p in tp.partitions {
                 match p.to_error() {
                     None => {}
-                    Some(e @ KafkaCode::GroupLoadInProgress) => {
+                    Some(e @ KafkaErrorCode::GroupLoadInProgress) => {
                         retry_code = Some(e);
                         break 'rproc;
                     }
-                    Some(e @ KafkaCode::NotCoordinatorForGroup) => {
+                    Some(e @ KafkaErrorCode::NotCoordinatorForGroup) => {
                         debug!(
                             "commit_offsets: resetting group coordinator for '{}'",
                             req.group
@@ -1470,11 +1470,11 @@ fn __fetch_group_offsets(
                     }
                     Err(e) => {
                         match e.downcast::<KafkaErrorKind>() {
-                            Ok(KafkaErrorKind::Kafka(c @ KafkaCode::GroupLoadInProgress)) => {
+                            Ok(KafkaErrorKind::Kafka(c @ KafkaErrorCode::GroupLoadInProgress)) => {
                                 retry_code = Some(c);
                                 break 'rproc;
                             }
-                            Ok(KafkaErrorKind::Kafka(e @ KafkaCode::NotCoordinatorForGroup)) => {
+                            Ok(KafkaErrorKind::Kafka(e @ KafkaErrorCode::NotCoordinatorForGroup)) => {
                                 debug!(
                                     "fetch_group_offsets: resetting group coordinator for '{}'",
                                     req.group
