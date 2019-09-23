@@ -1,10 +1,9 @@
 extern crate env_logger;
 extern crate getopts;
-#[macro_use]
-extern crate error_chain;
 
+use failure::{Error, format_err, bail};
 use std::fs::File;
-use std::io::{self, stderr, stdin, BufRead, BufReader, Write};
+use std::io::{stderr, stdin, BufRead, BufReader, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::time::Duration;
@@ -14,6 +13,7 @@ use kafka::client::{
     Compression, KafkaClient, RequiredAcks, DEFAULT_CONNECTION_IDLE_TIMEOUT_MILLIS,
 };
 use kafka::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
+use kafka::error::KafkaErrorKind;
 
 /// This is a very simple command line application sending every
 /// non-empty line of standard input to a specified kafka topic; one
@@ -44,7 +44,7 @@ fn produce(cfg: &Config) -> Result<(), Error> {
 
     // ~ verify that the remote brokers do know about the target topic
     if !client.topics().contains(&cfg.topic) {
-        bail!(format!("No such topic at {:?}: {}", cfg.brokers, cfg.topic));
+        Err(format_err!("No such topic at {:?}: {}", cfg.brokers, cfg.topic))?;
     }
     match cfg.input_file {
         None => {
@@ -165,7 +165,7 @@ fn send_batch(producer: &mut Producer, batch: &[Record<(), Trimmed>]) -> Result<
     for r in rs {
         for tpc in r.partition_confirms {
             if let Err(code) = tpc.offset {
-                bail!(KafkaError::Kafka(kafka::error::KafkaError::Kafka(code)));
+                Err(KafkaErrorKind::Kafka(code))?;
             }
         }
     }
@@ -173,17 +173,6 @@ fn send_batch(producer: &mut Producer, batch: &[Record<(), Trimmed>]) -> Result<
     Ok(())
 }
 
-// --------------------------------------------------------------------
-
-error_chain! {
-    links {
-        Kafka(kafka::error::Error, kafka::error::KafkaError);
-    }
-    foreign_links {
-        Io(io::Error);
-        Opt(getopts::Fail);
-    }
-}
 
 // --------------------------------------------------------------------
 
@@ -232,10 +221,11 @@ impl Config {
             "MILLIS",
         );
 
-        let m = match opts.parse(&args[1..]) {
-            Ok(m) => m,
-            Err(e) => bail!(e),
-        };
+        let m = opts.parse(&args[1..])?;
+//        {
+//            Ok(m) => m,
+//            Err(e) => bail!(e),
+//        };
         if m.opt_present("help") {
             let brief = format!("{} [options]", args[0]);
             bail!(opts.usage(&brief));
@@ -260,9 +250,9 @@ impl Config {
             },
             required_acks: match m.opt_str("required-acks") {
                 None => RequiredAcks::One,
-                Some(ref s) if s.eq_ignore_ascii_case("none") || s == 0 => RequiredAcks::None,
-                Some(ref s) if s.eq_ignore_ascii_case("one") || s == 1 => RequiredAcks::One,
-                Some(ref s) if s.eq_ignore_ascii_case("all") || s == -1 => RequiredAcks::All,
+                Some(ref s) if s.eq_ignore_ascii_case("none") || s == "0" => RequiredAcks::None,
+                Some(ref s) if s.eq_ignore_ascii_case("one") || s == "1" => RequiredAcks::One,
+                Some(ref s) if s.eq_ignore_ascii_case("all") || s == "-1" => RequiredAcks::All,
                 Some(s) => bail!(format!("Unknown --required-acks argument: {}", s)),
             },
             batch_size: to_number(m.opt_str("batch-size"), 1)?,

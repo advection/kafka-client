@@ -2,6 +2,7 @@ extern crate env_logger;
 
 use std::time::Duration;
 
+use failure::Error;
 use kafka::producer::{Producer, Record, RequiredAcks};
 
 /// This program demonstrates sending single message through a
@@ -20,7 +21,7 @@ fn main() {
     }
 }
 
-fn produce_message(data: &[u8], topic: &str, brokers: Vec<String>) -> Result<(), KafkaError> {
+fn produce_message(data: &[u8], topic: &str, brokers: Vec<String>) -> Result<(), Error> {
     println!("About to publish a message at {:?} to: {}", brokers, topic);
 
     // ~ create a producer. this is a relatively costly operation, so

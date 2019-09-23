@@ -1,9 +1,8 @@
 extern crate env_logger;
 extern crate getopts;
 extern crate time;
-#[macro_use]
-extern crate error_chain;
 
+use failure::{Error, bail};
 use std::cmp;
 use std::env;
 use std::io::{self, stderr, stdout, BufWriter, Write};
@@ -381,15 +380,5 @@ impl Config {
             summary: !m.opt_present("partitions"),
             diff: !m.opt_present("no-growth"),
         })
-    }
-}
-
-// --------------------------------------------------------------------
-
-error_chain! {
-    foreign_links {
-        Kafka(kafka::error::Error);
-        Io(io::Error);
-        Opt(getopts::Fail);
     }
 }

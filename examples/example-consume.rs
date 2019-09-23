@@ -1,5 +1,6 @@
 extern crate env_logger;
 
+use failure::Error;
 use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 
 /// This program demonstrates consuming messages through a `Consumer`.
@@ -18,7 +19,7 @@ fn main() {
     }
 }
 
-fn consume_messages(group: String, topic: String, brokers: Vec<String>) -> Result<(), KafkaError> {
+fn consume_messages(group: String, topic: String, brokers: Vec<String>) -> Result<(), Error> {
     let mut con = Consumer::from_hosts(brokers)
         .with_topic(topic)
         .with_group(group)
