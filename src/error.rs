@@ -10,12 +10,8 @@ use rustls::TLSError;
 use failure::Fail;
 use crate::failure::{Context, Backtrace};
 
-/// An error as reported by a remote Kafka server
-
 #[derive(Debug, Fail)]
 pub enum KafkaErrorKind {
-#[cfg(feature = "security")]
-// The various errors this library can produce.
     #[fail(display = "KafkaError: {:?}", _0)]
      Kafka(KafkaErrorCode),
 
@@ -60,6 +56,9 @@ pub enum KafkaErrorKind {
     /// An invalid user-provided duration
     #[fail(display = "Invalid duration")]
     InvalidDuration,
+
+    #[fail(display = "{}", _0)]
+    Msg(String),
 
     #[cfg(feature = "snappy")]
 //    #[doc="Failure to encode/decode a snappy compressed response from Kafka"]
@@ -132,7 +131,7 @@ pub fn from_snap_error_ref(err: &::snap::Error) -> KafkaErrorKind {
 }
 
 #[derive(Debug)]
-struct KafkaError {
+pub struct KafkaError {
     inner: Context<KafkaErrorKind>,
 }
 
@@ -316,7 +315,6 @@ pub enum KafkaErrorCode {
     UnsupportedVersion = 35,
 }
 
-
 #[cfg(feature = "security")]
 impl From<&TLSError> for KafkaErrorKind {
     fn from(err: &TLSError) -> KafkaErrorKind {
@@ -349,11 +347,11 @@ impl fmt::Display for KafkaError {
 }
 
 
-//impl KafkaError {
-//    pub fn kind(&self) -> KafkaErrorKind {
-//        *self.inner.get_context()
-//    }
-//}
+impl KafkaError {
+    pub fn kind(&self) -> KafkaErrorKind {
+        self.inner.get_context().clone() // zlb: this is probably not ideal
+    }
+}
 
 impl From<KafkaErrorKind> for KafkaError {
     fn from(kind: KafkaErrorKind) -> KafkaError {
@@ -363,36 +361,33 @@ impl From<KafkaErrorKind> for KafkaError {
 
 impl From<Context<KafkaErrorKind>> for KafkaError {
     fn from(inner: Context<KafkaErrorKind>) -> KafkaError {
-        KafkaError { inner: inner }
+        KafkaError { inner }
     }
 }
 
-
-
-/*impl Clone for Error {
-    fn clone(&self) -> Error {
+impl Clone for KafkaErrorKind {
+    fn clone(&self) -> KafkaErrorKind {
         match self {
-            Error(KafkaErrorKind::Io(err)) => KafkaErrorKind::Io(clone_ioe(err)).into(),
-            &Error(KafkaErrorKind::Kafka(x)) => KafkaErrorKind::Kafka(x).into(),
-            &Error(KafkaErrorKind::TopicPartitionError(ref topic, partition, error_code)) => {
-                KafkaErrorKind::TopicPartitionError(topic.clone(), partition, error_code).into()
+            KafkaErrorKind::IoError(ref err) => KafkaErrorKind::IoError(clone_ioe(err)).into(),
+            KafkaErrorKind::Kafka(x) => KafkaErrorKind::Kafka(x.clone()).into(),
+            KafkaErrorKind::TopicPartitionError{ ref topic_name, partition_id, error_code} => {
+                KafkaErrorKind::TopicPartitionError {
+                    topic_name: topic_name.clone(),
+                    partition_id: partition_id.clone(),
+                    error_code: error_code.clone()
+                }.into()
             }
-            #[cfg(feature = "security")]
-            Error(KafkaErrorKind::Ssl(ref x)) => from_sslerror_ref(x).into(),
-            #[cfg(feature = "security")]
-            Error(KafkaErrorKind::SslHandshake(ref x)) => KafkaErrorKind::SslHandshake(x.clone()).into(),
-            Error(KafkaErrorKind::UnsupportedProtocol) => KafkaErrorKind::UnsupportedProtocol.into(),
-            Error(KafkaErrorKind::UnsupportedCompression) => KafkaErrorKind::UnsupportedCompression.into(),
-            #[cfg(feature = "snappy")]
-            Error(KafkaErrorKind::InvalidSnappy(ref err)) => from_snap_error_ref(err).into(),
-            Error(KafkaErrorKind::UnexpectedEOF) => KafkaErrorKind::UnexpectedEOF.into(),
-            Error(KafkaErrorKind::CodecError) => KafkaErrorKind::CodecError.into(),
-            Error(KafkaErrorKind::StringDecodeError) => KafkaErrorKind::StringDecodeError.into(),
-            Error(KafkaErrorKind::NoHostReachable) => KafkaErrorKind::NoHostReachable.into(),
-            Error(KafkaErrorKind::NoTopicsAssigned) => KafkaErrorKind::NoTopicsAssigned.into(),
-            Error(KafkaErrorKind::InvalidDuration) => KafkaErrorKind::InvalidDuration.into(),
-            Error(KafkaErrorKind::Msg(ref msg)) => KafkaErrorKind::Msg(msg.clone()).into(),
-            Error(k) => KafkaErrorKind::Msg(k.to_string()).into(), // XXX: Strange to have to add this, what is missing?
+            KafkaErrorKind::UnsupportedProtocol => KafkaErrorKind::UnsupportedProtocol.into(),
+            KafkaErrorKind::UnsupportedCompression => KafkaErrorKind::UnsupportedCompression.into(),
+            KafkaErrorKind::InvalidSnappy(ref err) => from_snap_error_ref(err).into(),
+            KafkaErrorKind::CodecError => KafkaErrorKind::CodecError.into(),
+            KafkaErrorKind::StringDecodeError => KafkaErrorKind::StringDecodeError.into(),
+            KafkaErrorKind::NoHostReachable => KafkaErrorKind::NoHostReachable.into(),
+            KafkaErrorKind::NoTopicsAssigned => KafkaErrorKind::NoTopicsAssigned.into(),
+            KafkaErrorKind::InvalidDuration => KafkaErrorKind::InvalidDuration.into(),
+            KafkaErrorKind::Msg(ref msg) => KafkaErrorKind::Msg(msg.clone()).into(),
+            KafkaErrorKind::TLSError(e) => KafkaErrorKind::TLSError(e.clone()),
+            k => KafkaErrorKind::Msg(k.to_string()).into(), // XXX: Strange to have to add this, what is missing?
         }
     }
-}*/
+}
