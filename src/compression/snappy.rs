@@ -170,18 +170,17 @@ impl<'a> SnappyReader<'a> {
             buf.extend_from_slice(rest);
             self.uncompressed_pos += rest.len();
         }
+        println!("starting compressed_data: {} buf len: {}", self.compressed_data.len(), buf.len());
         // ~ now decompress data directly to the output target
         while !self.compressed_data.is_empty() {
-            let chunk_size: i32 = next_i32!(self.compressed_data)?;
-            println!("compressed_data: {} chunk_size: {} buf left: {}", self.compressed_data.len(), chunk_size, buf.len());
              match next_i32!(self.compressed_data) {
-                 Ok(n) if n <= 0 => {
+                 Ok(chunk_size) if chunk_size <= 0 => {
                      Err(snap::Error::UnsupportedChunkLength {
                          len: chunk_size as u64,
                          header: false,
                      })?;
                  }
-                 Ok(_n) => {
+                 Ok(chunk_size) => {
                      let (c1, c2) = self.compressed_data.split_at(chunk_size as usize);
                      uncompress_to(c1, buf)?;
                      self.compressed_data = c2;

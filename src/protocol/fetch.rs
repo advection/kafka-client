@@ -489,11 +489,6 @@ impl<'a> ProtocolMessage<'a> {
             Err(KafkaErrorKind::UnsupportedProtocol)?;
         }
         let msg_attr = r.read_i8()?;
-//            .and_then(|at| {(attr, r.read_bytes()) })
-//            .and_then(|attr, key, value| {
-
-                debug_assert!(r.is_empty());
-
         let msg_key = r.read_bytes()?;
         let msg_val = r.read_bytes()?;
 

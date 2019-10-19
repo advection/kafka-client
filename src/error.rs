@@ -398,8 +398,7 @@ impl Clone for KafkaErrorKind {
             KafkaErrorKind::NoTopicsAssigned => KafkaErrorKind::NoTopicsAssigned.into(),
             KafkaErrorKind::InvalidDuration => KafkaErrorKind::InvalidDuration.into(),
             KafkaErrorKind::Msg(ref msg) => KafkaErrorKind::Msg(msg.clone()).into(),
-            KafkaErrorKind::TLSError(e) => KafkaErrorKind::TLSError(e.clone()),
-            k => KafkaErrorKind::Msg(k.to_string()).into(), // XXX: Strange to have to add this, what is missing?
+            KafkaErrorKind::TLSError(e) => KafkaErrorKind::TLSError(e.clone())
         }
     }
 }
