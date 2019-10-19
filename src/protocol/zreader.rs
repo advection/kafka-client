@@ -1,9 +1,8 @@
 use std::str;
 use std::io::{self};
 
-use crate::failure::Error;
 use byteorder::{BigEndian, ByteOrder};
-use crate::error::KafkaErrorKind;
+use crate::error::{KafkaErrorKind, KafkaError};
 
 static EMPTY_STR: &str = "";
 
@@ -27,7 +26,7 @@ impl<'a> ZReader<'a> {
     /// the consumed bytes. The returned slice is guaranteed to be
     /// `n_bytes` long. This operation either succeeds or fails as a
     /// whole. Upon failure the reader will _not_ advance.
-    pub fn read<'b>(&'b mut self, n_bytes: usize) -> Result<&'a [u8], Error> {
+    pub fn read<'b>(&'b mut self, n_bytes: usize) -> Result<&'a [u8], KafkaError> {
         if n_bytes > self.data.len() {
             Err(KafkaErrorKind::IoError(io::ErrorKind::UnexpectedEof.into()))? // zlb: I get it, lots of intos
         } else {
@@ -49,25 +48,25 @@ impl<'a> ZReader<'a> {
         self.data.is_empty()
     }
 
-    pub fn read_i8(&mut self) -> Result<i8, Error> {
+    pub fn read_i8(&mut self) -> Result<i8, KafkaError> {
         self.read(1).map(|x| unsafe { *x.get_unchecked(0) as i8 })
     }
 
-    pub fn read_i16(&mut self) -> Result<i16, Error> {
+    pub fn read_i16(&mut self) -> Result<i16, KafkaError> {
         self.read(2).map(|x| dec!(read_i16, x))
     }
 
-    pub fn read_i32(&mut self) -> Result<i32, Error> {
+    pub fn read_i32(&mut self) -> Result<i32, KafkaError> {
         self.read(4).map(|x| dec!(read_i32, x))
     }
 
-    pub fn read_i64(&mut self) -> Result<i64, Error> {
+    pub fn read_i64(&mut self) -> Result<i64, KafkaError> {
         self.read(8).map(|x| dec!(read_i64, x))
     }
 
     /// Reads a string as defined by the Kafka Protocol. The 'null'
     /// string is delivered as the empty string.
-    pub fn read_str<'b>(&'b mut self) -> Result<&'a str, Error> {
+    pub fn read_str<'b>(&'b mut self) -> Result<&'a str, KafkaError> {
         let len = self.read_i16()?;
         if len <= 0 {
             Ok(EMPTY_STR)
@@ -82,7 +81,7 @@ impl<'a> ZReader<'a> {
 
     /// Reads 'bytes' as defined by the Kafka Protocol. The 'null'
     /// bytes are delivered as an empty slice.
-    pub fn read_bytes<'b>(&'b mut self) -> Result<&'a [u8], Error> {
+    pub fn read_bytes<'b>(&'b mut self) -> Result<&'a [u8], KafkaError> {
         let len = self.read_i32()?;
         if len <= 0 {
             Ok(&self.data[0..0])
@@ -94,7 +93,7 @@ impl<'a> ZReader<'a> {
     /// Reads the size of an array as defined by the Kafka
     /// Protocol. The size of 'null' array will be returned as the
     /// size an array of an empty array.
-    pub fn read_array_len(&mut self) -> Result<usize, Error> {
+    pub fn read_array_len(&mut self) -> Result<usize, KafkaError> {
         let len = self.read_i32()?;
         Ok(if len < 0 { 0 } else { len as usize })
     }

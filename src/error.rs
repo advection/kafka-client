@@ -10,6 +10,8 @@ use rustls::TLSError;
 use failure::Fail;
 use crate::failure::{Context, Backtrace};
 
+
+
 #[derive(Debug, Fail)]
 pub enum KafkaErrorKind {
     #[fail(display = "KafkaError: {:?}", _0)]
@@ -60,11 +62,6 @@ pub enum KafkaErrorKind {
     #[fail(display = "{}", _0)]
     Msg(String),
 
-    #[cfg(feature = "snappy")]
-//    #[doc="Failure to encode/decode a snappy compressed response from Kafka"]
-    #[fail(display = "{}", _0)]
-    InvalidSnappy(#[fail(cause)] ::snap::Error),
-
     #[fail(display = "{}", _0)]
     IoError(#[fail(cause)] io::Error),
 
@@ -75,20 +72,20 @@ pub enum KafkaErrorKind {
 
 
 #[cfg(feature = "snappy")]
-pub fn from_snap_error_ref(err: &::snap::Error) -> KafkaErrorKind {
+pub fn from_snap_error_ref(err: &::snap::Error) -> io::Error {
     match err {
         &::snap::Error::TooBig { given, max } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::TooBig { given, max })
+            io::Error::new(io::ErrorKind::Other, ::snap::Error::TooBig { given, max })
         }
         &::snap::Error::BufferTooSmall { given, min } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::BufferTooSmall { given, min })
+            io::Error::new(io::ErrorKind::Other, ::snap::Error::BufferTooSmall { given, min })
         }
-        ::snap::Error::Empty => KafkaErrorKind::InvalidSnappy(::snap::Error::Empty),
-        ::snap::Error::Header => KafkaErrorKind::InvalidSnappy(::snap::Error::Header),
+        ::snap::Error::Empty => io::Error::new(io::ErrorKind::Other,::snap::Error::Empty),
+        ::snap::Error::Header => io::Error::new(io::ErrorKind::Other,::snap::Error::Header),
         &::snap::Error::HeaderMismatch {
             expected_len,
             got_len,
-        } => KafkaErrorKind::InvalidSnappy(::snap::Error::HeaderMismatch {
+        } => io::Error::new(io::ErrorKind::Other,::snap::Error::HeaderMismatch {
             expected_len,
             got_len,
         }),
@@ -96,36 +93,36 @@ pub fn from_snap_error_ref(err: &::snap::Error) -> KafkaErrorKind {
             len,
             src_len,
             dst_len,
-        } => KafkaErrorKind::InvalidSnappy(::snap::Error::Literal {
+        } => io::Error::new(io::ErrorKind::Other,::snap::Error::Literal {
             len,
             src_len,
             dst_len,
         }),
         &::snap::Error::CopyRead { len, src_len } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::CopyRead { len, src_len })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::CopyRead { len, src_len })
         }
         &::snap::Error::CopyWrite { len, dst_len } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::CopyWrite { len, dst_len })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::CopyWrite { len, dst_len })
         }
         &::snap::Error::Offset { offset, dst_pos } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::Offset { offset, dst_pos })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::Offset { offset, dst_pos })
         }
         &::snap::Error::StreamHeader { byte } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::StreamHeader { byte })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::StreamHeader { byte })
         }
         ::snap::Error::StreamHeaderMismatch { ref bytes } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::StreamHeaderMismatch {
+            io::Error::new(io::ErrorKind::Other,::snap::Error::StreamHeaderMismatch {
                 bytes: bytes.clone(),
             })
         }
         &::snap::Error::UnsupportedChunkType { byte } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkType { byte })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::UnsupportedChunkType { byte })
         }
         &::snap::Error::UnsupportedChunkLength { len, header } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkLength { len, header })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::UnsupportedChunkLength { len, header })
         }
         &::snap::Error::Checksum { expected, got } => {
-            KafkaErrorKind::InvalidSnappy(::snap::Error::Checksum { expected, got })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::Checksum { expected, got })
         }
     }
 }
@@ -315,12 +312,25 @@ pub enum KafkaErrorCode {
     UnsupportedVersion = 35,
 }
 
+impl From<KafkaErrorCode> for KafkaError{
+    fn from(code: KafkaErrorCode) -> KafkaError {
+        KafkaError { inner: Context::new(KafkaErrorKind::Kafka(code)) }
+    }
+}
+
 #[cfg(feature = "security")]
 impl From<&TLSError> for KafkaErrorKind {
     fn from(err: &TLSError) -> KafkaErrorKind {
         KafkaErrorKind::TLSError(err.clone())
     }
 }
+
+impl From<io::Error> for KafkaError {
+    fn from(err: io::Error) -> KafkaError {
+        KafkaErrorKind::IoError(err).into()
+    }
+}
+
 
 /// Attempt to clone `io::Error`.
 fn clone_ioe(e: &io::Error) -> io::Error {
@@ -331,7 +341,10 @@ fn clone_ioe(e: &io::Error) -> io::Error {
 }
 
 impl Fail for KafkaError {
-    fn cause(&self) -> Option<& dyn Fail> {
+    fn name(&self) -> Option<&str> {
+        self.inner.name()
+    }
+    fn cause(&self) -> Option<&dyn Fail> {
         self.inner.cause()
     }
 
@@ -379,7 +392,6 @@ impl Clone for KafkaErrorKind {
             }
             KafkaErrorKind::UnsupportedProtocol => KafkaErrorKind::UnsupportedProtocol.into(),
             KafkaErrorKind::UnsupportedCompression => KafkaErrorKind::UnsupportedCompression.into(),
-            KafkaErrorKind::InvalidSnappy(ref err) => from_snap_error_ref(err).into(),
             KafkaErrorKind::CodecError => KafkaErrorKind::CodecError.into(),
             KafkaErrorKind::StringDecodeError => KafkaErrorKind::StringDecodeError.into(),
             KafkaErrorKind::NoHostReachable => KafkaErrorKind::NoHostReachable.into(),

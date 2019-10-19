@@ -1,12 +1,11 @@
 use std::default::Default;
 use std::io::{Read, Write, self};
 
-use failure::Error;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use crate::error::KafkaErrorKind;
+use crate::error::{KafkaErrorKind, KafkaError};
 
 
-fn convert_to_i16(t:usize) -> Result<i16, Error> {
+fn convert_to_i16(t:usize) -> Result<i16, KafkaError> {
     let x: usize = t;
     if (x as u64) <= (i16::max_value() as u64) {
         Ok(x as i16)
@@ -15,7 +14,7 @@ fn convert_to_i16(t:usize) -> Result<i16, Error> {
     }
 }
 
-fn convert_to_i32(t:usize) -> Result<i32, Error> {
+fn convert_to_i32(t:usize) -> Result<i32, KafkaError> {
     let x: usize = t;
     if (x as u64) <= (i32::max_value() as u64) {
         Ok(x as i32)
@@ -26,24 +25,24 @@ fn convert_to_i32(t:usize) -> Result<i32, Error> {
 
 
 pub trait ToByte {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error>;
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError>;
 }
 
 impl<'a, T: ToByte + 'a + ?Sized> ToByte for &'a T {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         (*self).encode(buffer)
     }
 }
 
 impl ToByte for i8 {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
         buffer.write_i8(*self)
             .or_else(|e| Err(KafkaErrorKind::IoError(e).into()))
     }
 }
 
 impl ToByte for i16 {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
         buffer
             .write_i16::<BigEndian>(*self)
             .map_err(|e| KafkaErrorKind::IoError(e).into())
@@ -51,7 +50,7 @@ impl ToByte for i16 {
 }
 
 impl ToByte for i32 {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
         buffer
             .write_i32::<BigEndian>(*self)
             .or_else(|e| Err(KafkaErrorKind::IoError(e).into()))
@@ -59,7 +58,7 @@ impl ToByte for i32 {
 }
 
 impl ToByte for i64 {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
         buffer
             .write_i64::<BigEndian>(*self)
             .or_else(|e| Err(KafkaErrorKind::IoError(e).into()))
@@ -67,7 +66,7 @@ impl ToByte for i64 {
 }
 
 impl ToByte for str {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
         let l = convert_to_i16(self.len())?;
         buffer.write_i16::<BigEndian>(l)?;
         buffer
@@ -88,13 +87,13 @@ fn test_string_too_long() {
 }
 
 impl<V: ToByte> ToByte for [V] {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
         encode_as_array(buffer, self, |buffer, x| x.encode(buffer))
     }
 }
 
 impl ToByte for [u8] {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
         let l = convert_to_i32(self.len())?;
         buffer.write_i32::<BigEndian>(l)?;
         buffer
@@ -108,7 +107,7 @@ impl ToByte for [u8] {
 pub struct AsStrings<'a, T: 'a>(pub &'a [T]);
 
 impl<'a, T: AsRef<str> + 'a> ToByte for AsStrings<'a, T> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         encode_as_array(buffer, self.0, |buffer, x| x.as_ref().encode(buffer))
     }
 }
@@ -116,13 +115,13 @@ impl<'a, T: AsRef<str> + 'a> ToByte for AsStrings<'a, T> {
 /// ~ Renders the length of `xs` to `buffer` as the start of a
 /// protocol array and then for each element of `xs` invokes `f`
 /// assuming that function will render the element to the buffer.
-pub fn encode_as_array<T, F, W>(buffer: &mut W, xs: &[T], mut f: F) -> Result<(), Error>
+pub fn encode_as_array<T, F, W>(buffer: &mut W, xs: &[T], mut f: F) -> Result<(), KafkaError>
 where
-    F: FnMut(&mut W, &T) -> Result<(), Error>,
+    F: FnMut(&mut W, &T) -> Result<(), KafkaError>,
     W: Write,
 {
     let l = convert_to_i32(xs.len())?;
-    buffer.write_i32::<BigEndian>(l)?;
+    buffer.write_i32::<BigEndian>(l).map_err(|e| KafkaErrorKind::IoError(e))?;
     for x in xs {
         f(buffer, x)?;
     }
@@ -134,8 +133,8 @@ where
 pub trait FromByte {
     type R: Default + FromByte;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error>;
-    fn decode_new<T: Read>(buffer: &mut T) -> Result<Self::R, Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError>;
+    fn decode_new<T: Read>(buffer: &mut T) -> Result<Self::R, KafkaError> {
         let mut temp: Self::R = Default::default();
         match temp.decode(buffer) {
             Ok(_) => Ok(temp),
@@ -151,7 +150,7 @@ macro_rules! dec_helper {
                 $dest = val;
                 Ok(())
             }
-            Err(e) => Err(From::from(e)),
+            Err(e) => Err(e.into()),
         }
     }};
 }
@@ -167,7 +166,7 @@ macro_rules! decode {
 impl FromByte for i8 {
     type R = i8;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         decode!(buffer, *self)
     }
 }
@@ -175,7 +174,7 @@ impl FromByte for i8 {
 impl FromByte for i16 {
     type R = i16;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         decode!(buffer, read_i16, *self)
     }
 }
@@ -183,21 +182,21 @@ impl FromByte for i16 {
 impl FromByte for i32 {
     type R = i32;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         decode!(buffer, read_i32, *self)
     }
 }
 
 impl FromByte for i64 {
     type R = i64;
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         decode!(buffer, read_i64, *self)
     }
 }
 
 impl FromByte for String {
     type R = String;
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         let mut length: i16 = 0;
         if let Err(e) = decode!(buffer, read_i16, length) {
             return Err(e);
@@ -206,7 +205,7 @@ impl FromByte for String {
             return Ok(());
         }
         self.reserve(length as usize);
-        let _ = buffer.take(length as u64).read_to_string(self)?;
+        let _ = buffer.take(length as u64).read_to_string(self).map_err(|e| KafkaErrorKind::IoError(e))?;
         if self.len() != length as usize {
             Err(KafkaErrorKind::IoError(io::ErrorKind::UnexpectedEof.into()).into()) // zlb: I get it, lots of intos
         } else { Ok(()) }
@@ -216,7 +215,7 @@ impl FromByte for String {
 impl<V: FromByte + Default> FromByte for Vec<V> {
     type R = Vec<V>;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         let mut length: i32 = 0;
         if let Err(e) = decode!(buffer, read_i32, length) {
             return Err(e);
@@ -237,7 +236,7 @@ impl<V: FromByte + Default> FromByte for Vec<V> {
 impl FromByte for Vec<u8> {
     type R = Vec<u8>;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         let mut length: i32 = 0;
         match decode!(buffer, read_i32, length) {
             Ok(_) => {}
@@ -247,15 +246,15 @@ impl FromByte for Vec<u8> {
             return Ok(());
         }
         self.reserve(length as usize);
-        buffer.take(length as u64)
+        let size = buffer.take(length as u64)
             .read_to_end(self)
-            .map(|size| {
-                if size < length as usize {
-                    Err(KafkaErrorKind::IoError(io::ErrorKind::UnexpectedEof.into()).into())
-                } else {
-                    Ok(())
-                }
-            })?
+            .map_err(|e| KafkaError::from(e))?;
+
+        if size < length as usize {
+            Err(KafkaError::from(io::Error::new(io::ErrorKind::UnexpectedEof, "size was shorter than expected")))?
+        } else {
+            Ok(())
+        }
     }
 }
 

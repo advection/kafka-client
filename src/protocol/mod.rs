@@ -3,8 +3,7 @@ use std::mem;
 use std::time::Duration;
 
 use crate::codecs::{FromByte, ToByte};
-use crate::error::{KafkaErrorCode, KafkaErrorKind};
-use crate::failure::Error;
+use crate::error::{KafkaErrorCode, KafkaErrorKind, KafkaError};
 use crc::crc32;
 
 
@@ -47,7 +46,7 @@ const API_VERSION: i16 = 0;
 /// particular response structure.
 pub trait ResponseParser {
     type T;
-    fn parse(&self, response: Vec<u8>) -> Result<Self::T, Error>;
+    fn parse(&self, response: Vec<u8>) -> Result<Self::T, KafkaError>;
 }
 
 // --------------------------------------------------------------------
@@ -140,7 +139,7 @@ impl<'a> HeaderRequest<'a> {
 }
 
 impl<'a> ToByte for HeaderRequest<'a> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         self.api_key.encode(buffer)?;
         self.api_version.encode(buffer)?;
         self.correlation_id.encode(buffer)?;
@@ -159,7 +158,7 @@ impl FromByte for HeaderResponse {
     type R = HeaderResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         self.correlation.decode(buffer)
     }
 }
@@ -174,7 +173,7 @@ pub fn to_crc(data: &[u8]) -> u32 {
 
 /// Safely converts a Duration into the number of milliseconds as a
 /// i32 as often required in the kafka protocol.
-pub fn to_millis_i32(d: Duration) -> Result<i32, Error> {
+pub fn to_millis_i32(d: Duration) -> Result<i32, KafkaError> {
     use std::i32;
     let m = d
         .as_secs()
@@ -194,10 +193,9 @@ fn test_to_millis_i32() {
     fn assert_invalid(d: Duration) {
         match to_millis_i32(d) {
             Err(e) => {
-                match e.downcast::<KafkaErrorKind>() {
-                    Ok(c @ KafkaErrorKind::InvalidDuration) => {},
-                    Ok(other) => panic!("Expected Err(InvalidDuration) but got {:?}", other),
-                    Err(other) => panic!("Expected Err(InvalidDuration) but got {:?}", other),
+                match e.kind() {
+                    KafkaErrorKind::InvalidDuration => {},
+                    other => panic!("Expected Err(InvalidDuration) but got {:?}", other),
                 }
             }
             other => panic!("Expected Err(InvalidDuration) but got {:?}", other),

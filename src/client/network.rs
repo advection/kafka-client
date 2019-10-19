@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "security")]
 use rustls::ClientConfig;
 
-use failure::Error;
 
 // --------------------------------------------------------------------
 
@@ -87,7 +86,7 @@ pub struct Config {
 
 impl Config {
     #[cfg(not(feature = "security"))]
-    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, Error> {
+    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, KafkaError> {
         KafkaConnection::new(id, host, self.rw_timeout).map(|c| {
             debug!("Established: {:?}", c);
             c
@@ -95,7 +94,7 @@ impl Config {
     }
 
     #[cfg(feature = "security")]
-    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, Error> {
+    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, KafkaError> {
         KafkaConnection::new(id, host, self.rw_timeout, self.security_config.clone()).map(|c| {
             debug!("Established: {:?}", c);
             c
@@ -170,7 +169,7 @@ impl Connections {
         self.config.idle_timeout
     }
 
-    pub fn get_conn<'a>(&'a mut self, host: &str, now: Instant) -> Result<&'a mut KafkaConnection, Error> {
+    pub fn get_conn<'a>(&'a mut self, host: &str, now: Instant) -> Result<&'a mut KafkaConnection, KafkaError> {
         if let Some(conn) = self.conns.get_mut(host) {
             if now.duration_since(conn.last_checkout) >= self.config.idle_timeout {
                 debug!("Idle timeout reached: {:?}", conn.item);
@@ -237,6 +236,7 @@ impl IsSecured for KafkaStream {
 
 #[cfg(feature = "security")]
 use self::tlsed::KafkaStream;
+use crate::error::{KafkaErrorKind, KafkaError};
 
 #[cfg(feature = "security")]
 mod tlsed {
@@ -332,19 +332,19 @@ impl fmt::Debug for KafkaConnection {
 }
 
 impl KafkaConnection {
-    pub fn send(&mut self, msg: &[u8]) -> Result<usize, Error> {
-        let r = self.stream.write(&msg[..]).map_err(From::from);
+    pub fn send(&mut self, msg: &[u8]) -> Result<usize, KafkaError> {
+        let r = self.stream.write(&msg[..]).map_err(|e| KafkaErrorKind::IoError(e).into());
         trace!("Sent {} bytes to: {:?} => {:?}", msg.len(), self, r);
         r
     }
 
-    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
-        let r = (&mut self.stream).read_exact(buf).map_err(From::from);
+    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), KafkaError> {
+        let r = (&mut self.stream).read_exact(buf).map_err(|e| KafkaErrorKind::IoError(e).into());
         trace!("Read {} bytes from: {:?} => {:?}", buf.len(), self, r);
         r
     }
 
-    pub fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, Error> {
+    pub fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, KafkaError> {
         let size: usize = size as usize;
         let mut buffer: Vec<u8> = Vec::with_capacity(size);
         // this is safe actually: we are setting the len to the
@@ -356,10 +356,10 @@ impl KafkaConnection {
         Ok(buffer)
     }
 
-    fn shutdown(&mut self) -> Result<(), Error> {
+    fn shutdown(&mut self) -> Result<(), KafkaError> {
         let r = self.stream.shutdown(Shutdown::Both);
         debug!("Shut down: {:?} => {:?}", self, r);
-        r.map_err(From::from)
+        r.map_err(|e| KafkaErrorKind::IoError(e).into())
     }
 
     fn from_stream(
@@ -367,7 +367,7 @@ impl KafkaConnection {
         id: u32,
         host: &str,
         rw_timeout: Option<Duration>,
-    ) -> Result<KafkaConnection, Error> {
+    ) -> Result<KafkaConnection, KafkaError> {
         stream.set_read_timeout(rw_timeout)?;
         stream.set_write_timeout(rw_timeout)?;
         Ok(KafkaConnection {
@@ -378,7 +378,7 @@ impl KafkaConnection {
     }
 
     #[cfg(not(feature = "security"))]
-    fn new(id: u32, host: &str, rw_timeout: Option<Duration>) -> Result<KafkaConnection, Error> {
+    fn new(id: u32, host: &str, rw_timeout: Option<Duration>) -> Result<KafkaConnection, KafkaError> {
         KafkaConnection::from_stream(TcpStream::connect((*host).parse())?, id, host, rw_timeout)
     }
 
@@ -388,7 +388,7 @@ impl KafkaConnection {
         host: &str,
         rw_timeout: Option<Duration>,
         security: Option<SecurityConfig>,
-    ) -> Result<KafkaConnection, Error> {
+    ) -> Result<KafkaConnection, KafkaError> {
         let socket = TcpStream::connect(host)?;
         let stream = match security {
             None => KafkaStream::Plain(socket),

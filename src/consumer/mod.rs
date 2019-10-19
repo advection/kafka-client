@@ -63,7 +63,6 @@
 
 use std::collections::hash_map::{Entry, HashMap};
 use std::slice;
-use failure::Error;
 
 use crate::client::fetch;
 use crate::client::{CommitOffset, FetchPartition, KafkaClient};
@@ -73,7 +72,7 @@ pub use self::builder::Builder;
 pub use crate::client::fetch::Message;
 pub use crate::client::FetchOffset;
 pub use crate::client::GroupOffsetStorage;
-use crate::error::{KafkaErrorCode, KafkaErrorKind};
+use crate::error::{KafkaErrorCode, KafkaErrorKind, KafkaError};
 
 mod assignment;
 mod builder;
@@ -154,7 +153,7 @@ impl Consumer {
     }
 
     /// Polls for the next available message data.
-    pub fn poll(&mut self) -> Result<MessageSets, Error> {
+    pub fn poll(&mut self) -> Result<MessageSets, KafkaError> {
         let (n, resps) = self.fetch_messages();
         self.process_fetch_responses(n, resps?)
     }
@@ -172,7 +171,7 @@ impl Consumer {
     }
 
     // ~ returns (number partitions queried, fetch responses)
-    fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>, Error>) {
+    fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>, KafkaError>) {
         // ~ if there's a retry partition ... fetch messages just for
         // that one. Otherwise try to fetch messages for all assigned
         // partitions.
@@ -224,7 +223,7 @@ impl Consumer {
         &mut self,
         num_partitions_queried: u32,
         resps: Vec<fetch::Response>,
-    ) -> Result<MessageSets, Error> {
+    ) -> Result<MessageSets, KafkaError> {
         let single_partition_consumer = self.single_partition_consumer();
         let mut empty = true;
         let retry_partitions = &mut self.state.retry_partitions;
@@ -251,7 +250,7 @@ impl Consumer {
                     // transparently for the caller.
                     let data = match p.data() {
                         Ok(d) => d ,
-                        Err( e) => {  Err(*e)? }
+                        Err( e) => {  Err(KafkaErrorKind::Kafka(*e))? }
                     };
                         // XXX need to prevent updating fetch_offsets in case we're gonna fail here
 
@@ -373,9 +372,9 @@ impl Consumer {
     ///
     /// Results in an error if the specified topic partition is not
     /// being consumed by this consumer.
-    pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<(), Error> {
+    pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<(), KafkaError> {
         let topic_ref = match self.state.topic_ref(topic) {
-            None => bail!(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition)),
+            None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
             Some(topic_ref) => topic_ref,
         };
         let tp = state::TopicPartition {
@@ -403,7 +402,7 @@ impl Consumer {
     /// A convience method to mark the given message set consumed as a
     /// whole by the caller. This is equivalent to marking the last
     /// message of the given set as consumed.
-    pub fn consume_messageset<'a>(&mut self, msgs: MessageSet<'a>) -> Result<(), Error> {
+    pub fn consume_messageset<'a>(&mut self, msgs: MessageSet<'a>) -> Result<(), KafkaError> {
         if !msgs.messages.is_empty() {
             self.consume_message(
                 msgs.topic,
@@ -420,7 +419,7 @@ impl Consumer {
     ///
     /// See also `Consumer::consume_message` and
     /// `Consumer::consume_messageset`.
-    pub fn commit_consumed(&mut self) -> Result<(), Error> {
+    pub fn commit_consumed(&mut self) -> Result<(), KafkaError> {
         if self.config.group.is_empty() {
             debug!("commit_consumed: ignoring commit request since no group defined");
             return Ok(());

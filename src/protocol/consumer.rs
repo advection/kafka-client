@@ -3,8 +3,7 @@ use crate::codecs::ToByte;
 use std::io::{Read, Write};
 
 use crate::codecs::{self};
-use crate::error::{self, KafkaErrorKind, KafkaErrorCode};
-use failure::Error;
+use crate::error::{self, KafkaErrorKind, KafkaErrorCode, KafkaError};
 use crate::utils::PartitionOffset;
 
 use super::{HeaderRequest, HeaderResponse};
@@ -37,7 +36,7 @@ impl<'a, 'b> GroupCoordinatorRequest<'a, 'b> {
 }
 
 impl<'a, 'b> ToByte for GroupCoordinatorRequest<'a, 'b> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         self.header.encode(buffer)?;
         self.group.encode(buffer)
     }
@@ -53,7 +52,7 @@ pub struct GroupCoordinatorResponse {
 }
 
 impl GroupCoordinatorResponse {
-    pub fn into_result(self) -> Result<Self, Error> {
+    pub fn into_result(self) -> Result<Self, KafkaError> {
         match KafkaErrorCode::from_protocol_as_error(self.error) {
             Some(e) => Err(e.into()),
             None => Ok(self),
@@ -64,7 +63,7 @@ impl GroupCoordinatorResponse {
 impl FromByte for GroupCoordinatorResponse {
     type R = GroupCoordinatorResponse;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
             self.header.decode(buffer)?;
             self.error.decode(buffer)?;
             self.broker_id.decode(buffer)?;
@@ -155,7 +154,7 @@ impl PartitionOffsetFetchRequest {
 }
 
 impl<'a, 'b, 'c> ToByte for OffsetFetchRequest<'a, 'b, 'c> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
             self.header.encode(buffer)?;
             self.group.encode(buffer)?;
             self.topic_partitions.encode(buffer)
@@ -163,14 +162,14 @@ impl<'a, 'b, 'c> ToByte for OffsetFetchRequest<'a, 'b, 'c> {
 }
 
 impl<'a> ToByte for TopicPartitionOffsetFetchRequest<'a> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         self.topic.encode(buffer)?;
         self.partitions.encode(buffer)
     }
 }
 
 impl ToByte for PartitionOffsetFetchRequest {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         self.partition.encode(buffer)
     }
 }
@@ -198,7 +197,7 @@ pub struct PartitionOffsetFetchResponse {
 }
 
 impl PartitionOffsetFetchResponse {
-    pub fn get_offsets(&self) -> Result<PartitionOffset, Error> {
+    pub fn get_offsets(&self) -> Result<PartitionOffset, KafkaError> {
         match KafkaErrorCode::from_protocol(self.error) {
             Some(KafkaErrorCode::UnknownTopicOrPartition) => {
                 // ~ occurs only on protocol v0 when no offset available
@@ -221,7 +220,7 @@ impl PartitionOffsetFetchResponse {
 impl FromByte for OffsetFetchResponse {
     type R = OffsetFetchResponse;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
             self.header.decode(buffer)?;
             self.topic_partitions.decode(buffer)
     }
@@ -230,7 +229,7 @@ impl FromByte for OffsetFetchResponse {
 impl FromByte for TopicPartitionOffsetFetchResponse {
     type R = TopicPartitionOffsetFetchResponse;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         self.topic.decode(buffer)?;
         self.partitions.decode(buffer)
     }
@@ -239,7 +238,7 @@ impl FromByte for TopicPartitionOffsetFetchResponse {
 impl FromByte for PartitionOffsetFetchResponse {
     type R = PartitionOffsetFetchResponse;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
             self.partition.decode(buffer)?;
             self.offset.decode(buffer)?;
             self.metadata.decode(buffer)?;
@@ -350,7 +349,7 @@ impl<'a> PartitionOffsetCommitRequest<'a> {
 }
 
 impl<'a, 'b> ToByte for OffsetCommitRequest<'a, 'b> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         let v = OffsetCommitVersion::from_protocol(self.header.api_version);
         self.header.encode(buffer)?;
         self.group.encode(buffer)?;
@@ -393,7 +392,7 @@ pub struct OffsetCommitResponse {
 impl FromByte for OffsetCommitResponse {
     type R = OffsetCommitResponse;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
             self.header.decode(buffer)?;
             self.topic_partitions.decode(buffer)
     }
@@ -408,7 +407,7 @@ pub struct TopicPartitionOffsetCommitResponse {
 impl FromByte for TopicPartitionOffsetCommitResponse {
     type R = TopicPartitionOffsetCommitResponse;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> { // zlb: this method/chunk of code seems to be heavily duplicate. Might be worth making a shared trait
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> { // zlb: this method/chunk of code seems to be heavily duplicate. Might be worth making a shared trait
         self.topic.decode(buffer)?;
         self.partitions.decode(buffer)
     }
@@ -429,7 +428,7 @@ impl PartitionOffsetCommitResponse {
 impl FromByte for PartitionOffsetCommitResponse {
     type R = PartitionOffsetCommitResponse;
 
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), Error> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
         self.partition.decode(buffer)?;
         self.error.decode(buffer)
     }

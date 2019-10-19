@@ -18,8 +18,7 @@ use crate::compression::gzip;
 #[cfg(feature = "snappy")]
 use crate::compression::snappy::SnappyReader;
 use crate::compression::Compression;
-use crate::error::{KafkaErrorCode, KafkaErrorKind };
-use crate::failure::Error;
+use crate::error::{KafkaErrorCode, KafkaErrorKind, KafkaError};
 
 pub type PartitionHasher = BuildHasherDefault<FnvHasher>;
 
@@ -97,7 +96,7 @@ impl PartitionFetchRequest {
 }
 
 impl<'a, 'b> ToByte for FetchRequest<'a, 'b> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
         self.header.encode(buffer)?;
         self.replica.encode(buffer)?;
         self.max_wait_time.encode(buffer)?;
@@ -112,7 +111,7 @@ impl<'a, 'b> ToByte for FetchRequest<'a, 'b> {
 }
 
 impl TopicPartitionFetchRequest {
-    fn encode<W: Write>(&self, topic: &str, buffer: &mut W) -> Result<(), Error> {
+    fn encode<W: Write>(&self, topic: &str, buffer: &mut W) -> Result<(), KafkaError> {
         topic.encode(buffer)?;
         // encode the hashmap as a vector
         (self.partitions.len() as i32).encode(buffer)?;
@@ -124,7 +123,7 @@ impl TopicPartitionFetchRequest {
 }
 
 impl PartitionFetchRequest {
-    fn encode<T: Write>(&self, partition: i32, buffer: &mut T) -> Result<(), Error> {
+    fn encode<T: Write>(&self, partition: i32, buffer: &mut T) -> Result<(), KafkaError> {
             partition.encode(buffer)?;
             self.offset.encode(buffer)?;
             self.max_bytes.encode(buffer)
@@ -144,7 +143,7 @@ where
 
 impl<'a, 'b, 'c> super::ResponseParser for ResponseParser<'a, 'b, 'c> {
     type T = Response;
-    fn parse(&self, response: Vec<u8>) -> Result<Self::T, Error> {
+    fn parse(&self, response: Vec<u8>) -> Result<Self::T, KafkaError> {
         Response::from_vec(response, self.requests, self.validate_crc)
     }
 }
@@ -196,7 +195,7 @@ impl Response {
         response: Vec<u8>,
         reqs: Option<&FetchRequest<'_, '_>>,
         validate_crc: bool,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response, KafkaError> {
         let slice = unsafe { mem::transmute(&response[..]) };
         let mut r = ZReader::new(slice);
         let correlation_id = r.read_i32()?;
@@ -238,7 +237,7 @@ impl<'a> Topic<'a> {
         r: &mut ZReader<'a>,
         reqs: Option<&FetchRequest<'_, '_>>,
         validate_crc: bool,
-    ) -> Result<Topic<'a>, Error> {
+    ) -> Result<Topic<'a>, KafkaError> {
         let name = r.read_str()?;
         let preqs = reqs.and_then(|reqs| reqs.get(name));
         let partitions = array_of!(r, Partition::read(r, preqs, validate_crc));
@@ -283,7 +282,7 @@ impl<'a> Partition<'a> {
         r: &mut ZReader<'a>,
         preqs: Option<&TopicPartitionFetchRequest>,
         validate_crc: bool,
-    ) -> Result<Partition<'a>, Error> {
+    ) -> Result<Partition<'a>, KafkaError> {
         let partition = r.read_i32()?;
         let proffs = preqs
             .and_then(|preqs| preqs.get(partition))
@@ -373,7 +372,7 @@ pub struct Message<'a> {
 
 impl<'a> MessageSet<'a> {
     #[allow(dead_code)]
-    fn from_vec(data: Vec<u8>, req_offset: i64, validate_crc: bool) -> Result<MessageSet<'a>, Error> {
+    fn from_vec(data: Vec<u8>, req_offset: i64, validate_crc: bool) -> Result<MessageSet<'a>, KafkaError> {
         // since we're going to keep the original
         // uncompressed vector around without
         // further modifying it and providing
@@ -390,11 +389,11 @@ impl<'a> MessageSet<'a> {
         })
     }
 
-    fn from_slice<'b>(
-        raw_data: &'b [u8],
+    fn from_slice(
+        raw_data: &[u8],
         req_offset: i64,
         validate_crc: bool,
-    ) -> Result<MessageSet<'b>, Error> {
+    ) -> Result<MessageSet, KafkaError> {
         let mut r = ZReader::new(raw_data);
         let mut msgs = Vec::new();
         while !r.is_empty() {
@@ -403,22 +402,18 @@ impl<'a> MessageSet<'a> {
                 // incomplete; a valid case to be handled by
                 // consumers
 //                Err(io::ErrorKind::UnexpectedEof) => {
-  //                  break;
-    //            }
+                //                  break;
+                //            }
                 Err(e) => {
-                    match e.downcast::<io::Error>() {
-                        // zlb: ok I may actually need help on this one. Commenting out for now
-                        Ok(io_err) => {
-                            break;
+                    match e.kind() {
+                        KafkaErrorKind::IoError(io) => match io.kind() {
+                            //todo: need to make sure this code gets tested
+                            io::ErrorKind::UnexpectedEof => break,
+                            _ => Err(KafkaErrorKind::IoError(io))?
                         }
-//                        Ok(io_err) if io_err == io::ErrorKind::UnexpectedEof => {
-  //                          break;
-    //                    }
-                        Err(err) => {
-                            return Err(err);
-                        }
+                        _ => Err(e)?
                     }
-                }
+                },
                 Ok((offset, pmsg)) => {
                     // handle compression (denoted by the last 3 bits
                     // of the attr field)
@@ -437,17 +432,17 @@ impl<'a> MessageSet<'a> {
                         // XXX handle recursive compression in future
                         #[cfg(feature = "gzip")]
                         c if c == Compression::GZIP as i8 => {
-                            let v = gzip::uncompress(pmsg.value)?;
+                            let v = gzip::uncompress(pmsg.value).map_err(|e| KafkaErrorKind::IoError(e))?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
                         #[cfg(feature = "snappy")]
                         c if c == Compression::SNAPPY as i8 => {
                             use std::io::Read;
                             let mut v = Vec::new();
-                            SnappyReader::new(pmsg.value)?.read_to_end(&mut v)?;
+                            SnappyReader::new(pmsg.value).map(|mut r| r.read_to_end(&mut v)).map_err(|e| KafkaErrorKind::IoError(e))?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
-                        _ => bail!(KafkaErrorKind::UnsupportedCompression),
+                        _ => Err(KafkaErrorKind::UnsupportedCompression)?,
                     }
                 }
             };
@@ -461,10 +456,11 @@ impl<'a> MessageSet<'a> {
     fn next_message<'b>(
         r: &mut ZReader<'b>,
         validate_crc: bool,
-    ) -> Result<(i64, ProtocolMessage<'b>), Error> {
+    ) -> Result<(i64, ProtocolMessage<'b>), KafkaError> {
         let offset = r.read_i64()?;
         let msg_data = r.read_bytes()?;
-        Ok((offset, ProtocolMessage::from_slice(msg_data, validate_crc)?))
+        let msg = ProtocolMessage::from_slice(msg_data, validate_crc)?;
+        Ok((offset, msg))
     }
 }
 
@@ -476,23 +472,28 @@ struct ProtocolMessage<'a> {
 }
 
 impl<'a> ProtocolMessage<'a> {
-    /// Parses a raw message from the given byte slice.  Does _not_
+    /// Parses a raw message from the given byte  slice.  Does _not_
     /// handle any compression.
-    fn from_slice<'b>(raw_data: &'b [u8], validate_crc: bool) -> Result<ProtocolMessage<'b>, Error> {
+    fn from_slice(raw_data: &[u8], validate_crc: bool) -> Result<ProtocolMessage, KafkaError> {
         let mut r = ZReader::new(raw_data);
 
         // ~ optionally validate the crc checksum
         let msg_crc = r.read_i32()?;
         if validate_crc && (to_crc(r.rest()) as i32) != msg_crc {
-            bail!(KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage));
+            Err(KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage))?;
         }
         // ~ we support parsing only messages with the "zero"
         // magic_byte; this covers kafka 0.8 and 0.9.
         let msg_magic = r.read_i8()?;
         if msg_magic != 0 {
-            bail!(KafkaErrorKind::UnsupportedProtocol);
+            Err(KafkaErrorKind::UnsupportedProtocol)?;
         }
         let msg_attr = r.read_i8()?;
+//            .and_then(|at| {(attr, r.read_bytes()) })
+//            .and_then(|attr, key, value| {
+
+                debug_assert!(r.is_empty());
+
         let msg_key = r.read_bytes()?;
         let msg_val = r.read_bytes()?;
 
@@ -513,7 +514,7 @@ mod tests {
     use std::str;
 
     use super::{FetchRequest, Message, Response};
-    use crate::error::{KafkaErrorKind, KafkaErrorCode};
+    use crate::error::{KafkaErrorCode, KafkaErrorKind};
 
     static FETCH1_TXT: &str = include_str!("../../test-data/fetch1.txt");
 
@@ -739,11 +740,15 @@ mod tests {
         ) {
             Ok(_) => panic!("Expected error, but got successful response!"),
             Err(e) => {
-                match e.downcast::<KafkaErrorCode>() {
-                    Ok(k @ KafkaErrorCode::CorruptMessage) => {},
-                    Ok(other) => panic!("Expected KafkaCode::CorruptMessage error, but got: {:?}", other),
-                    Err(other) => panic!("Expected KafkaCode::CorruptMessage error, but got: {:?}", other)
+                match e.kind() {
+                    KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage) => {},
+                    other => {
+                        println!("what we have is a failure to communicate: {:?}", KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage));
+                        assert!(false, "Expected KafkaCode::CorruptMessage error, but got: {:?}", other)
+                    }
                 }
+//                    _ => panic!("Expected KafkaErrorCode::CorruptMessage error, but got: {:?}", e)
+//                    Err(other) => panic!("Expected KafkaErrorCode::CorruptMessage error, but got: {:?}", other)
             }
         }
     }
