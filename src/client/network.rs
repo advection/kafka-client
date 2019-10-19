@@ -333,13 +333,13 @@ impl fmt::Debug for KafkaConnection {
 
 impl KafkaConnection {
     pub fn send(&mut self, msg: &[u8]) -> Result<usize, KafkaError> {
-        let r = self.stream.write(&msg[..]).map_err(|e| KafkaErrorKind::IoError(e).into());
+        let r = self.stream.write(&msg[..]).map_err(From::from);
         trace!("Sent {} bytes to: {:?} => {:?}", msg.len(), self, r);
         r
     }
 
     pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), KafkaError> {
-        let r = (&mut self.stream).read_exact(buf).map_err(|e| KafkaErrorKind::IoError(e).into());
+        let r = (&mut self.stream).read_exact(buf).map_err(From::from);
         trace!("Read {} bytes from: {:?} => {:?}", buf.len(), self, r);
         r
     }
@@ -359,7 +359,7 @@ impl KafkaConnection {
     fn shutdown(&mut self) -> Result<(), KafkaError> {
         let r = self.stream.shutdown(Shutdown::Both);
         debug!("Shut down: {:?} => {:?}", self, r);
-        r.map_err(|e| KafkaErrorKind::IoError(e).into())
+        r.map_err(From::from)
     }
 
     fn from_stream(

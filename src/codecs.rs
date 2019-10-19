@@ -4,25 +4,23 @@ use std::io::{Read, Write, self};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use crate::error::{KafkaErrorKind, KafkaError};
 
-
-fn convert_to_i16(t:usize) -> Result<i16, KafkaError> {
-    let x: usize = t;
-    if (x as u64) <= (i16::max_value() as u64) {
-        Ok(x as i16)
-    } else {
-        Err(KafkaErrorKind::CodecError.into())
-    }
+// Helper macro to safely convert an usize expression into a signed
+// integer.  If the conversion is not possible the macro issues a
+// `CodecError`, otherwise returns the expression
+// in the requested target type.
+macro_rules! try_usize_to_int {
+// ~ $ttype should actually be a 'ty' ... but rust complains for
+// some reason :/
+($value:expr, $ttype:ident) => {{
+let maxv = $ ttype::max_value();
+let x: usize = $ value;
+if (x as u64) <= (maxv as u64) {
+x as $ ttype
+} else {
+Err(KafkaErrorKind::CodecError)?
 }
-
-fn convert_to_i32(t:usize) -> Result<i32, KafkaError> {
-    let x: usize = t;
-    if (x as u64) <= (i32::max_value() as u64) {
-        Ok(x as i32)
-    } else {
-        Err(KafkaErrorKind::CodecError.into())
-    }
+}};
 }
-
 
 pub trait ToByte {
     fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError>;
@@ -67,7 +65,7 @@ impl ToByte for i64 {
 
 impl ToByte for str {
     fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
-        let l = convert_to_i16(self.len())?;
+        let l = try_usize_to_int!(self.len(), i16);
         buffer.write_i16::<BigEndian>(l)?;
         buffer
             .write_all(self.as_bytes())
@@ -94,7 +92,7 @@ impl<V: ToByte> ToByte for [V] {
 
 impl ToByte for [u8] {
     fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
-        let l = convert_to_i32(self.len())?;
+        let l = try_usize_to_int!(self.len(), i32);
         buffer.write_i32::<BigEndian>(l)?;
         buffer
             .write_all(self)
@@ -120,7 +118,7 @@ where
     F: FnMut(&mut W, &T) -> Result<(), KafkaError>,
     W: Write,
 {
-    let l = convert_to_i32(xs.len())?;
+    let l = try_usize_to_int!(xs.len(), i32);
     buffer.write_i32::<BigEndian>(l).map_err(|e| KafkaErrorKind::IoError(e))?;
     for x in xs {
         f(buffer, x)?;
@@ -251,7 +249,7 @@ impl FromByte for Vec<u8> {
             .map_err(|e| KafkaError::from(e))?;
 
         if size < length as usize {
-            Err(KafkaError::from(io::Error::new(io::ErrorKind::UnexpectedEof, "size was shorter than expected")))?
+            Err(KafkaError::from(io::Error::from(io::ErrorKind::UnexpectedEof)))?
         } else {
             Ok(())
         }
