@@ -5,7 +5,7 @@ extern crate time;
 use failure::{Error, bail};
 use std::cmp;
 use std::env;
-use std::io::{self, stderr, stdout, BufWriter, Write};
+use std::io::{stderr, stdout, BufWriter, Write};
 use std::process;
 use std::thread;
 use std::time as stdtime;

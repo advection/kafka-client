@@ -439,7 +439,9 @@ impl<'a> MessageSet<'a> {
                         c if c == Compression::SNAPPY as i8 => {
                             use std::io::Read;
                             let mut v = Vec::new();
-                            SnappyReader::new(pmsg.value).map(|mut r| r.read_to_end(&mut v)).map_err(|e| KafkaErrorKind::IoError(e))?;
+                            // todo: zlb seems like we should cache the reader instead of creating it on each invocation
+                            let mut reader = SnappyReader::new(pmsg.value)?;
+                            reader.read_to_end(&mut v).map_err(|e| KafkaErrorKind::IoError(e))?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
                         _ => Err(KafkaErrorKind::UnsupportedCompression)?,

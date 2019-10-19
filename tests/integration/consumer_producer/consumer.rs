@@ -4,6 +4,7 @@ use kafka::error;
 use kafka::producer::Record;
 
 use env_logger;
+use kafka::error::KafkaErrorKind;
 
 /// Tests that consuming one message works
 #[test]
@@ -206,9 +207,9 @@ fn test_consumer_non_existent_topic() {
         .create()
         .unwrap_err();
 
-    let error_code = match consumer_err {
-        error::Error(error::KafkaError::Kafka(code), _) => code,
-        _ => panic!("Should have received Kafka error"),
+    let error_code = match consumer_err.kind() {
+        KafkaErrorKind::Kafka(code) => code,
+        other => panic!("Should have received Kafka error instead of: {}", other),
     };
 
     let correct_error_code = error::KafkaErrorCode::UnknownTopicOrPartition;

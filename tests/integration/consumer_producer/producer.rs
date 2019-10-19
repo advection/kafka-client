@@ -1,6 +1,7 @@
 use super::*;
 use kafka::error;
 use kafka::producer::Record;
+use kafka::error::KafkaErrorKind;
 
 /// Tests that basic message sending results in a successful call.
 #[test]
@@ -18,10 +19,10 @@ fn test_producer_send_non_existent_topic() {
 
     let error_code = match producer
         .send(&Record::from_value("non-topic", b"foo".as_ref()))
-        .unwrap_err()
+        .unwrap_err().kind()
     {
-        error::Error(error::ErrorKind::Kafka(code), _) => code,
-        _ => panic!("Should have received Kafka error"),
+        KafkaErrorKind::Kafka(code) => code,
+        other => panic!("Should have received Kafka error instead of: {}", other),
     };
 
     let correct_error_code = error::KafkaErrorCode::UnknownTopicOrPartition;
@@ -65,9 +66,9 @@ fn test_producer_send_all_non_existent_topic() {
         Record::from_value("bar-topic", b"bar".as_ref()),
     ];
 
-    let error_code = match producer.send_all(records).unwrap_err() {
-        error::Error(error::KafkaError::Kafka(code), _) => code,
-        _ => panic!("Should have received Kafka error"),
+    let error_code = match producer.send_all(records).unwrap_err().kind() {
+        KafkaErrorKind::Kafka(code) => code,
+        other => panic!("Should have received Kafka error instead of: {}", other),
     };
 
     let correct_error_code = error::KafkaErrorCode::UnknownTopicOrPartition;

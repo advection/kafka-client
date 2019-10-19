@@ -236,7 +236,7 @@ impl IsSecured for KafkaStream {
 
 #[cfg(feature = "security")]
 use self::tlsed::KafkaStream;
-use crate::error::{KafkaErrorKind, KafkaError};
+use crate::error::KafkaError;
 
 #[cfg(feature = "security")]
 mod tlsed {

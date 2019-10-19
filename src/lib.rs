@@ -10,7 +10,7 @@
 #![recursion_limit = "128"]
 #![cfg_attr(feature = "nightly", feature(test))]
 
-#[macro_use] extern crate failure;
+extern crate failure;
 
 #[macro_use]
 extern crate log;
