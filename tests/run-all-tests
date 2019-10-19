@@ -69,6 +69,11 @@ for ver in $vers; do
     exit 1
   }
 
+  cargo test || {
+    teardown
+    exit 1
+  }
+
   cargo test --features integration_tests || {
     teardown
     exit 1
