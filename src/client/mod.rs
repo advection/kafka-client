@@ -769,8 +769,8 @@ impl KafkaClient {
     /// client (this might be more topics than specified right to this
     /// method call.)
     #[inline]
-    pub fn load_metadata<T: AsRef<str>>(&mut self, topics: &[T]) -> Result<(), KafkaError> {
-        let resp = self.fetch_metadata(topics)?;
+    pub async fn load_metadata<T: AsRef<str>>(&mut self, topics: &[T]) -> Result<(), KafkaError> {
+        let resp = self.fetch_metadata(topics).await?;
         self.state.update_metadata(resp)
     }
 
@@ -783,7 +783,7 @@ impl KafkaClient {
 
     /// Fetches metadata about the specified topics from all of the
     /// underlying brokers (`self.hosts`).
-    fn fetch_metadata<T: AsRef<str>>(
+    async fn fetch_metadata<T: AsRef<str>>(
         &mut self,
         topics: &[T],
     ) -> Result<protocol::MetadataResponse, KafkaError> {
@@ -792,12 +792,12 @@ impl KafkaClient {
 
         for host in &self.config.hosts {
             debug!("fetch_metadata: requesting metadata from {}", host);
-            match self.conn_pool.get_conn(host, now) {
+            match self.conn_pool.get_conn(host, now).await {
                 Ok(conn) => {
                     let req =
                         protocol::MetadataRequest::new(correlation, &self.config.client_id, topics);
-                    match __send_request(conn, req) {
-                        Ok(_) => return __get_response::<protocol::MetadataResponse>(conn),
+                    match __send_request(conn, req).await {
+                        Ok(_) => return __get_response::<protocol::MetadataResponse>(conn).await,
                         Err(e) => debug!(
                             "fetch_metadata: failed to request metadata from {}: {}",
                             host, e
@@ -827,7 +827,7 @@ impl KafkaClient {
     ///
     /// Returns a mapping of topic name to `PartitionOffset`s for each
     /// currently available partition of the corresponding topic.
-    pub fn fetch_offsets<T: AsRef<str>>(
+    pub async fn fetch_offsets<T: AsRef<str>>(
         &mut self,
         topics: &[T],
         offset: FetchOffset,
@@ -865,7 +865,7 @@ impl KafkaClient {
                 &host,
                 now,
                 req,
-            )?;
+            ).await?;
             for tp in resp.topic_partitions {
                 let mut entry = res.entry(tp.topic);
                 let mut new_resp_offsets = None;
@@ -932,14 +932,14 @@ impl KafkaClient {
     ///
     /// Returns a vector of the offset data for each available partition.
     /// See also `KafkaClient::fetch_offsets`.
-    pub fn fetch_topic_offsets<T: AsRef<str>>(
+    pub async fn fetch_topic_offsets<T: AsRef<str>>(
         &mut self,
         topic: T,
         offset: FetchOffset,
     ) -> Result<Vec<PartitionOffset>, KafkaError> {
         let topic = topic.as_ref();
 
-        let mut m = self.fetch_offsets(&[topic], offset)?;
+        let mut m = self.fetch_offsets(&[topic], offset).await?;
         let offs = m.remove(topic).unwrap_or_default();
         if offs.is_empty() {
             return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into() )
@@ -1015,7 +1015,7 @@ impl KafkaClient {
     /// ```
     /// See also `kafka::consumer`.
     /// See also `KafkaClient::set_fetch_max_bytes_per_partition`.
-    pub fn fetch_messages<'a, I, J>(&mut self, input: I) -> Result<Vec<fetch::Response>, KafkaError>
+    pub async fn fetch_messages<'a, I, J>(&mut self, input: I) -> Result<Vec<fetch::Response>, KafkaError>
     where
         J: AsRef<FetchPartition<'a>>,
         I: IntoIterator<Item = J>,
@@ -1052,17 +1052,17 @@ impl KafkaClient {
             }
         }
 
-        __fetch_messages(&mut self.conn_pool, config, reqs)
+        __fetch_messages(&mut self.conn_pool, config, reqs).await
     }
 
     /// Fetch messages from a single kafka partition.
     ///
     /// See `KafkaClient::fetch_messages`.
-    pub fn fetch_messages_for_partition<'a>(
+    pub async fn fetch_messages_for_partition<'a>(
         &mut self,
         req: &FetchPartition<'a>,
     ) -> Result<Vec<fetch::Response>, KafkaError> {
-        self.fetch_messages(&[req])
+        self.fetch_messages(&[req]).await
     }
 
     /// Send a message to Kafka
@@ -1510,7 +1510,7 @@ fn __fetch_group_offsets(
 }
 
 /// ~ carries out the given fetch requests and returns the response
-fn __fetch_messages(
+async fn __fetch_messages(
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
     reqs: HashMap<&str, protocol::FetchRequest>,
@@ -1522,7 +1522,7 @@ fn __fetch_messages(
             validate_crc: config.fetch_crc_validation,
             requests: Some(&req),
         };
-        res.push(__z_send_receive(conn_pool, host, now, &req, &p)?);
+        res.push(__z_send_receive(conn_pool, host, now, &req, &p).await?);
     }
     Ok(res)
 }
@@ -1551,7 +1551,7 @@ fn __produce_messages(
     }
 }
 
-fn __send_receive<T, V>(
+async fn __send_receive<T, V>(
     conn_pool: &mut network::Connections,
     host: &str,
     now: Instant,
@@ -1561,7 +1561,7 @@ where
     T: ToByte,
     V: FromByte,
 {
-    __send_receive_conn::<T, V>(conn_pool.get_conn(host, now)?, req)
+    __send_receive_conn::<T, V>(conn_pool.get_conn(host, now).await?, req)
 }
 
 fn __send_receive_conn<T, V>(conn: &mut network::KafkaConnection, req: T) -> Result<V::R, KafkaError>
@@ -1573,7 +1573,7 @@ where
     __get_response::<V>(conn)
 }
 
-fn __send_noack<T, V>(
+async fn __send_noack<T, V>(
     conn_pool: &mut network::Connections,
     host: &str,
     now: Instant,
@@ -1583,11 +1583,11 @@ where
     T: ToByte,
     V: FromByte,
 {
-    let mut conn = conn_pool.get_conn(host, now)?;
-    __send_request(&mut conn, req)
+    let mut conn = conn_pool.get_conn(host, now).await?;
+    __send_request(&mut conn, req).await
 }
 
-fn __send_request<T: ToByte>(conn: &mut network::KafkaConnection, request: T) -> Result<usize, KafkaError> {
+async fn __send_request<T: ToByte>(conn: &mut network::KafkaConnection, request: T) -> Result<usize, KafkaError> {
     // ~ buffer to receive data to be sent
     let mut buffer = Vec::with_capacity(4);
     // ~ reserve bytes for the actual request size (we'll fill in that later)
@@ -1601,12 +1601,12 @@ fn __send_request<T: ToByte>(conn: &mut network::KafkaConnection, request: T) ->
     trace!("__send_request: Sending bytes: {:?}", &buffer);
 
     // ~ send the prepared buffer
-    conn.send(&buffer)
+    conn.send(&buffer).await
 }
 
-fn __get_response<T: FromByte>(conn: &mut network::KafkaConnection) -> Result<T::R, KafkaError> {
-    let size = __get_response_size(conn)?;
-    let resp = conn.read_exact_alloc(size as u64)?;
+async fn __get_response<T: FromByte>(conn: &mut network::KafkaConnection) -> Result<T::R, KafkaError> {
+    let size = __get_response_size(conn).await?;
+    let resp = conn.read_exact_alloc(size as u64).await?;
 
     trace!("__get_response: received bytes: {:?}", &resp);
 
@@ -1625,7 +1625,7 @@ fn __get_response<T: FromByte>(conn: &mut network::KafkaConnection) -> Result<T:
     T::decode_new(&mut Cursor::new(resp))
 }
 
-fn __z_send_receive<R, P>(
+async fn __z_send_receive<R, P>(
     conn_pool: &mut network::Connections,
     host: &str,
     now: Instant,
@@ -1636,17 +1636,17 @@ where
     R: ToByte,
     P: ResponseParser,
 {
-    let mut conn = conn_pool.get_conn(host, now)?;
-    __send_request(&mut conn, req)?;
-    __z_get_response(&mut conn, parser)
+    let mut conn = conn_pool.get_conn(host, now).await?;
+    __send_request(&mut conn, req).await?;
+    __z_get_response(&mut conn, parser).await
 }
 
-fn __z_get_response<P>(conn: &mut network::KafkaConnection, parser: &P) -> Result<P::T, KafkaError>
+async fn __z_get_response<P>(conn: &mut network::KafkaConnection, parser: &P) -> Result<P::T, KafkaError>
 where
     P: ResponseParser,
 {
-    let size = __get_response_size(conn)?;
-    let resp = conn.read_exact_alloc(size as u64)?;
+    let size = __get_response_size(conn).await?;
+    let resp = conn.read_exact_alloc(size as u64).await?;
 
     // {
     //     use std::fs::OpenOptions;
@@ -1663,9 +1663,9 @@ where
     parser.parse(resp)
 }
 
-fn __get_response_size(conn: &mut network::KafkaConnection) -> Result<i32, KafkaError> {
+async fn __get_response_size(conn: &mut network::KafkaConnection) -> Result<i32, KafkaError> {
     let mut buf = [0u8; 4];
-    conn.read_exact(&mut buf)?;
+    conn.read_exact(&mut buf).await?;
     i32::decode_new(&mut Cursor::new(&buf)).into()
 }
 

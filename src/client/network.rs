@@ -8,9 +8,11 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
 use std::mem;
-use std::net::{Shutdown, TcpStream};
+use tokio::net::{TcpStream};
+use std::net::{Shutdown};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::prelude::*;
 
 #[cfg(feature = "security")]
 use rustls::ClientConfig;
@@ -86,7 +88,7 @@ pub struct Config {
 
 impl Config {
     #[cfg(not(feature = "security"))]
-    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, KafkaError> {
+    async fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, KafkaError> {
         KafkaConnection::new(id, host, self.rw_timeout).map(|c| {
             debug!("Established: {:?}", c);
             c
@@ -94,7 +96,7 @@ impl Config {
     }
 
     #[cfg(feature = "security")]
-    fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, KafkaError> {
+    async fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, KafkaError> {
         KafkaConnection::new(id, host, self.rw_timeout, self.security_config.clone()).map(|c| {
             debug!("Established: {:?}", c);
             c
@@ -169,11 +171,11 @@ impl Connections {
         self.config.idle_timeout
     }
 
-    pub fn get_conn<'a>(&'a mut self, host: &str, now: Instant) -> Result<&'a mut KafkaConnection, KafkaError> {
+    pub async fn get_conn<'a>(&'a mut self, host: &str, now: Instant) -> Result<&'a mut KafkaConnection, KafkaError> {
         if let Some(conn) = self.conns.get_mut(host) {
             if now.duration_since(conn.last_checkout) >= self.config.idle_timeout {
                 debug!("Idle timeout reached: {:?}", conn.item);
-                let new_conn = self.config.new_conn(self.state.next_conn_id(), host)?;
+                let new_conn = self.config.new_conn(self.state.next_conn_id(), host).await?;
                 let _ = conn.item.shutdown();
                 conn.item = new_conn;
             }
@@ -188,17 +190,17 @@ impl Connections {
         let cid = self.state.next_conn_id();
         self.conns.insert(
             host.to_owned(),
-            Pooled::new(now, self.config.new_conn(cid, host)?),
+            Pooled::new(now, self.config.new_conn(cid, host).await?),
         );
         Ok(&mut self.conns.get_mut(host).unwrap().item)
     }
 
-    pub fn get_conn_any(&mut self, now: Instant) -> Option<&mut KafkaConnection> {
+    pub async fn get_conn_any(&mut self, now: Instant) -> Option<&mut KafkaConnection> {
         for (host, conn) in &mut self.conns {
             if now.duration_since(conn.last_checkout) >= self.config.idle_timeout {
                 debug!("Idle timeout reached: {:?}", conn.item);
                 let new_conn_id = self.state.next_conn_id();
-                let new_conn = match self.config.new_conn(new_conn_id, host.as_str()) {
+                let new_conn = match self.config.new_conn(new_conn_id, host.as_str()).await {
                     Ok(new_conn) => {
                         let _ = conn.item.shutdown();
                         new_conn
@@ -238,18 +240,20 @@ impl IsSecured for KafkaStream {
 use self::tlsed::KafkaStream;
 use crate::error::KafkaError;
 
-#[cfg(feature = "security")]
+ #[cfg(feature = "security")]
 mod tlsed {
-    use rustls::{ClientSession, StreamOwned};
+    use tokio_rustls::TlsStream;
     use std::io::{self, Read, Write};
-    use std::net::{Shutdown, TcpStream};
+    use std::net::Shutdown;
+    use tokio::prelude::*;
+    use tokio::net::TcpStream;
     use std::time::Duration;
 
     use super::IsSecured;
 
     pub enum KafkaStream {
         Plain(TcpStream),
-        Ssl(StreamOwned<ClientSession, TcpStream>),
+        Ssl(TlsStream<TcpStream>),
     }
 
     impl IsSecured for KafkaStream {
@@ -332,19 +336,19 @@ impl fmt::Debug for KafkaConnection {
 }
 
 impl KafkaConnection {
-    pub fn send(&mut self, msg: &[u8]) -> Result<usize, KafkaError> {
+    pub async fn send(&mut self, msg: &[u8]) -> Result<usize, KafkaError> {
         let r = self.stream.write(&msg[..]).map_err(From::from);
         trace!("Sent {} bytes to: {:?} => {:?}", msg.len(), self, r);
         r
     }
 
-    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), KafkaError> {
+    pub async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), KafkaError> {
         let r = (&mut self.stream).read_exact(buf).map_err(From::from);
         trace!("Read {} bytes from: {:?} => {:?}", buf.len(), self, r);
-        r
+        r.map( |x| { () } )
     }
 
-    pub fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, KafkaError> {
+    pub async fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, KafkaError> {
         let size: usize = size as usize;
         let mut buffer: Vec<u8> = Vec::with_capacity(size);
         // this is safe actually: we are setting the len to the
@@ -352,7 +356,7 @@ impl KafkaConnection {
         // following call to `read_exact` or discard the vector (in
         // the error case)
         unsafe { buffer.set_len(size) };
-        self.read_exact(buffer.as_mut_slice())?;
+        self.read_exact(buffer.as_mut_slice()).await?;
         Ok(buffer)
     }
 
@@ -378,8 +382,8 @@ impl KafkaConnection {
     }
 
     #[cfg(not(feature = "security"))]
-    fn new(id: u32, host: &str, rw_timeout: Option<Duration>) -> Result<KafkaConnection, KafkaError> {
-        KafkaConnection::from_stream(TcpStream::connect((*host).parse())?, id, host, rw_timeout)
+    async fn new(id: u32, host: &str, rw_timeout: Option<Duration>) -> Result<KafkaConnection, KafkaError> {
+        KafkaConnection::from_stream(TcpStream::connect((*host).parse()).await?, id, host, rw_timeout)
     }
 
     #[cfg(feature = "security")]
@@ -389,9 +393,9 @@ impl KafkaConnection {
         rw_timeout: Option<Duration>,
         security: Option<SecurityConfig>,
     ) -> Result<KafkaConnection, KafkaError> {
-        let socket = TcpStream::connect(host)?;
+        let socket = std::net::TcpStream::connect(host)?;
         let stream = match security {
-            None => KafkaStream::Plain(socket),
+            None => KafkaStream::Plain(TcpStream::from_std(socket)),
             Some(security_config) => {
                 let domain = match host.rfind(':') {
                     None => host,
@@ -399,8 +403,8 @@ impl KafkaConnection {
                 };
                 let dns_name = webpki::DNSNameRef::try_from_ascii_str(domain).unwrap();
                 let session = rustls::ClientSession::new(&security_config.rustls_config, dns_name);
-                let stream = rustls::StreamOwned::new(session, socket);
-                KafkaStream::Ssl(stream)
+                let stream = TcpStream::from_std(rustls::StreamOwned::new(session, socket));
+
             }
         };
         KafkaConnection::from_stream(stream, id, host, rw_timeout)

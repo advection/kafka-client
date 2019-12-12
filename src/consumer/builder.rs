@@ -219,7 +219,7 @@ impl Builder {
     /// Fails with the `NoTopicsAssigned` error, if neither
     /// `with_topic` nor `with_topic_partitions` have been called to
     /// assign at least one topic for consumption.
-    pub fn create(self) -> Result<Consumer, KafkaError> {
+    pub async fn create(self) -> Result<Consumer, KafkaError> {
         // ~ fail immediately if there's no topic to be consumed
         if self.assignments.is_empty() {
              Err(KafkaErrorKind::NoTopicsAssigned)?;

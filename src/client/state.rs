@@ -10,6 +10,7 @@ use crate::error::KafkaError;
 pub struct ClientState {
     // ~ the last correlation used when communicating with kafka
     // (see `#next_correlation_id`)
+    // does this need to be atomic?
     correlation: i32,
 
     // ~ a list of known brokers referred to by the index in this

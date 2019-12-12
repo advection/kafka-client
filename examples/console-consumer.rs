@@ -14,7 +14,8 @@ use getopts::Matches;
 
 /// This is a very simple command line application reading from a
 /// specific kafka topic and dumping the messages to standard output.
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let cfg = match Config::from_cmdline() {
