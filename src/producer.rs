@@ -253,12 +253,12 @@ impl Producer {
 
 impl<P: Partitioner> Producer<P> {
     /// Synchronously send the specified message to Kafka.
-    pub fn send<'a, K, V>(&mut self, rec: &Record<'a, K, V>) -> Result<(), KafkaError>
+    pub async fn send<'a, K, V>(&mut self, rec: &Record<'a, K, V>) -> Result<(), KafkaError>
     where
         K: AsBytes,
         V: AsBytes,
     {
-        let mut rs = self.send_all(slice::from_ref(rec))?;
+        let mut rs = self.send_all(slice::from_ref(rec)).await?;
 
         if self.config.required_acks == 0 {
             // ~ with no required_acks we get no response and
@@ -279,10 +279,10 @@ impl<P: Partitioner> Producer<P> {
         }
     }
 
-    /// Synchronously send all of the specified messages to Kafka. To validate
+    /// Send all of the specified messages to Kafka. To validate
     /// that all of the specified records have been successfully delivered,
     /// inspection of the offsets on the returned confirms is necessary.
-    pub fn send_all<'a, K, V>(&mut self, recs: &[Record<'a, K, V>]) -> Result<Vec<ProduceConfirm>, KafkaError>
+    pub async fn send_all<'a, K, V>(&mut self, recs: &[Record<'a, K, V>]) -> Result<Vec<ProduceConfirm>, KafkaError>
     where
         K: AsBytes,
         V: AsBytes,
@@ -305,7 +305,7 @@ impl<P: Partitioner> Producer<P> {
                 partitioner.partition(Topics::new(partitions), &mut m);
                 m
             }),
-        )
+        ).await
     }
 }
 
@@ -460,7 +460,7 @@ impl<P> Builder<P> {
 
     /// Finally creates/builds a new producer based on the so far
     /// supplied settings.
-    pub fn create(self) -> Result<Producer<P>, Error> {
+    pub async fn create(self) -> Result<Producer<P>, Error> {
         // ~ create the client if necessary
         let (mut client, need_metadata) = match self.client {
             Some(client) => (client, false),
@@ -481,7 +481,7 @@ impl<P> Builder<P> {
         };
         // ~ load metadata if necessary
         if need_metadata {
-            client.load_metadata_all()?;
+            client.load_metadata_all().await?;
         }
         // ~ create producer state
         let state = State::new(&mut client, self.partitioner)?;

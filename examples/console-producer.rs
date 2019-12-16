@@ -21,7 +21,8 @@ use kafka::error::KafkaErrorKind;
 ///
 /// Alternatively, messages can be read from an input file and sent do
 /// kafka in batches (the typical use-case).
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     let cfg = match Config::from_cmdline() {
@@ -31,16 +32,16 @@ fn main() {
             process::exit(1);
         }
     };
-    if let Err(e) = produce(&cfg) {
+    if let Err(e) = produce(&cfg).await {
         println!("{}", e);
         process::exit(1);
     }
 }
 
-fn produce(cfg: &Config) -> Result<(), Error> {
+async fn produce(cfg: &Config) -> Result<(), Error> {
     let mut client = KafkaClient::new(cfg.brokers.clone());
     client.set_client_id("kafka-rust-console-producer".into());
-    client.load_metadata_all()?;
+    client.load_metadata_all().await?;
 
     // ~ verify that the remote brokers do know about the target topic
     if !client.topics().contains(&cfg.topic) {
@@ -50,26 +51,26 @@ fn produce(cfg: &Config) -> Result<(), Error> {
         None => {
             let stdin = stdin();
             let mut stdin = stdin.lock();
-            produce_impl(&mut stdin, client, &cfg)
+            produce_impl(&mut stdin, client, &cfg).await
         }
         Some(ref file) => {
             let mut r = BufReader::new(File::open(file)?);
-            produce_impl(&mut r, client, &cfg)
+            produce_impl(&mut r, client, &cfg).await
         }
     }
 }
 
-fn produce_impl(src: &mut impl BufRead, client: KafkaClient, cfg: &Config) -> Result<(), Error> {
+async fn produce_impl(src: &mut impl BufRead, client: KafkaClient, cfg: &Config) -> Result<(), Error> {
     let mut producer = Producer::from_client(client)
         .with_ack_timeout(cfg.ack_timeout)
         .with_required_acks(cfg.required_acks)
         .with_compression(cfg.compression)
         .with_connection_idle_timeout(cfg.conn_idle_timeout)
-        .create()?;
+        .create().await?;
     if cfg.batch_size < 2 {
-        produce_impl_nobatch(&mut producer, src, cfg)
+        produce_impl_nobatch(&mut producer, src, cfg).await
     } else {
-        produce_impl_inbatches(&mut producer, src, cfg)
+        produce_impl_inbatches(&mut producer, src, cfg).await
     }
 }
 
@@ -94,7 +95,7 @@ impl DerefMut for Trimmed {
     }
 }
 
-fn produce_impl_nobatch(
+async fn produce_impl_nobatch(
     producer: &mut Producer,
     src: &mut impl BufRead,
     cfg: &Config,
@@ -110,7 +111,7 @@ fn produce_impl_nobatch(
             continue; // ~ skip empty lines
         }
         // ~ directly send to kafka
-        producer.send(&rec)?;
+        producer.send(&rec).await?;
         let _ = write!(stderr, "Sent: {}", *rec.value);
     }
     Ok(())
@@ -119,7 +120,7 @@ fn produce_impl_nobatch(
 // This implementation wants to be efficient.  It buffers N lines from
 // the source and sends these in batches to Kafka.  Line buffers
 // across batches are re-used for the sake of avoiding allocations.
-fn produce_impl_inbatches(
+async fn produce_impl_inbatches(
     producer: &mut Producer,
     src: &mut impl BufRead,
     cfg: &Config,
@@ -138,7 +139,7 @@ fn produce_impl_inbatches(
     loop {
         // ~ send out a batch if it's ready
         if next_rec == rec_stash.len() {
-            send_batch(producer, &rec_stash)?;
+            send_batch(producer, &rec_stash).await?;
             next_rec = 0;
         }
         let rec = &mut rec_stash[next_rec];
@@ -154,13 +155,13 @@ fn produce_impl_inbatches(
     }
     // ~ flush pending messages - if any
     if next_rec > 0 {
-        send_batch(producer, &rec_stash[..next_rec])?;
+        send_batch(producer, &rec_stash[..next_rec]).await?;
     }
     Ok(())
 }
 
-fn send_batch(producer: &mut Producer, batch: &[Record<(), Trimmed>]) -> Result<(), Error> {
-    let rs = producer.send_all(batch)?;
+async fn send_batch<'a>(producer: &mut Producer, batch: &[Record<'a, (), Trimmed>]) -> Result<(), Error> {
+    let rs = producer.send_all(batch).await?;
 
     for r in rs {
         for tpc in r.partition_confirms {

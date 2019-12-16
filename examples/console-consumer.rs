@@ -25,13 +25,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             process::exit(1);
         }
     };
-    if let Err(e) = process(cfg) {
+    if let Err(e) = process(cfg).await {
         println!("{}", e);
         process::exit(1);
     }
+    Ok(())
 }
 
-fn process(cfg: Config) -> Result<(), Error> {
+async fn process(cfg: Config) -> Result<(), Error> {
     let mut c = {
         let mut cb = Consumer::from_hosts(cfg.brokers)
             .with_group(cfg.group)
@@ -45,7 +46,7 @@ fn process(cfg: Config) -> Result<(), Error> {
         for topic in cfg.topics {
             cb = cb.with_topic(topic);
         }
-        cb.create()?
+        cb.create().await?
     };
 
     let stdout = io::stdout();
@@ -54,7 +55,7 @@ fn process(cfg: Config) -> Result<(), Error> {
 
     let do_commit = !cfg.no_commit;
     loop {
-        for ms in c.poll()?.iter() {
+        for ms in c.poll().await?.iter() {
             for m in ms.messages() {
                 // ~ clear the output buffer
                 unsafe { buf.set_len(0) };
@@ -68,7 +69,7 @@ fn process(cfg: Config) -> Result<(), Error> {
             let _ = c.consume_messageset(ms);
         }
         if do_commit {
-            c.commit_consumed()?;
+            c.commit_consumed().await?;
         }
     }
     Ok(())

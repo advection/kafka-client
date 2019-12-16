@@ -7,28 +7,29 @@ use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 /// This is a convenient client that will fit most use cases.  Note
 /// that messages must be marked and commited as consumed to ensure
 /// only once delivery.
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     let broker = "localhost:9092".to_owned();
     let topic = "my-topic".to_owned();
     let group = "my-group".to_owned();
 
-    if let Err(e) = consume_messages(group, topic, vec![broker]) {
+    if let Err(e) = consume_messages(group, topic, vec![broker]).await {
         println!("Failed consuming messages: {}", e);
     }
 }
 
-fn consume_messages(group: String, topic: String, brokers: Vec<String>) -> Result<(), Error> {
+async fn consume_messages(group: String, topic: String, brokers: Vec<String>) -> Result<(), Error> {
     let mut con = Consumer::from_hosts(brokers)
         .with_topic(topic)
         .with_group(group)
         .with_fallback_offset(FetchOffset::Earliest)
         .with_offset_storage(GroupOffsetStorage::Kafka)
-        .create()?;
+        .create().await?;
 
     loop {
-        let mss = con.poll()?;
+        let mss = con.poll().await?;
         if mss.is_empty() {
             println!("No messages available right now.");
             return Ok(());
@@ -46,6 +47,6 @@ fn consume_messages(group: String, topic: String, brokers: Vec<String>) -> Resul
             }
             let _ = con.consume_messageset(ms);
         }
-        con.commit_consumed()?;
+        con.commit_consumed().await?;
     }
 }

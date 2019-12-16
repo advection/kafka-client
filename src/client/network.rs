@@ -97,7 +97,7 @@ impl Config {
 
     #[cfg(feature = "security")]
     async fn new_conn(&self, id: u32, host: &str) -> Result<KafkaConnection, KafkaError> {
-        KafkaConnection::new(id, host, self.rw_timeout, self.security_config.clone()).map(|c| {
+        KafkaConnection::new(id, host, self.rw_timeout, self.security_config.clone()).await.map(|c| {
             debug!("Established: {:?}", c);
             c
         })
@@ -239,17 +239,18 @@ impl IsSecured for KafkaStream {
 #[cfg(feature = "security")]
 use self::tlsed::KafkaStream;
 use crate::error::KafkaError;
+use tokio_rustls::TlsConnector;
 
- #[cfg(feature = "security")]
+#[cfg(feature = "security")]
 mod tlsed {
     use tokio_rustls::TlsStream;
-    use std::io::{self, Read, Write};
+   // use std::io::{self, Read, Write};
     use std::net::Shutdown;
     use tokio::prelude::*;
     use tokio::net::TcpStream;
-    use std::time::Duration;
 
     use super::IsSecured;
+    use std::io::{Read, Write};
 
     pub enum KafkaStream {
         Plain(TcpStream),
@@ -269,10 +270,19 @@ mod tlsed {
         fn get_ref(&self) -> &TcpStream {
             match *self {
                 KafkaStream::Plain(ref s) => s,
-                KafkaStream::Ssl(ref s) => s.get_ref(),
+                KafkaStream::Ssl(ref s) => s.get_ref().0 // possible to unpack as part of the match?
             }
         }
 
+        fn get_mut(&mut self) -> &TcpStream {
+            match *self {
+                KafkaStream::Plain(ref mut s) => s,
+                KafkaStream::Ssl(ref mut s) => s.get_mut().0 // possible to unpack as part of the match?
+            }
+        }
+
+
+        /*
         pub fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
             self.get_ref().set_read_timeout(dur)
         }
@@ -280,36 +290,46 @@ mod tlsed {
         pub fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
             self.get_ref().set_write_timeout(dur)
         }
+*/
 
         pub fn shutdown(&mut self, how: Shutdown) -> io::Result<()> {
             self.get_ref().shutdown(how)
         }
-    }
 
-    impl Read for KafkaStream {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        //    impl Read for KafkaStream {
+        pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             match *self {
-                KafkaStream::Plain(ref mut s) => s.read(buf),
-                KafkaStream::Ssl(ref mut s) => s.read(buf),
+                KafkaStream::Plain(ref mut s) => s.read(buf).await,
+                KafkaStream::Ssl(ref mut s) => s.get_mut().0.read(buf).await // why can't I use get_mut on itself here instead...
             }
         }
-    }
 
-    impl Write for KafkaStream {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            match *self { // zlb: this seems funky, why does it match on a reference to itself?
-                // is it because they are different underlying types? ohhh, it doesn't wanna lose the info
-                KafkaStream::Plain(ref mut s) => s.write(buf),
-                KafkaStream::Ssl(ref mut s) => s.write(buf),
+        pub async fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match *self {
+                KafkaStream::Plain(ref mut s) => s.read_exact(buf).await,
+                KafkaStream::Ssl(ref mut s) => s.get_mut().0.read_exact(buf).await // why can't I use get_mut on itself here instead...
             }
         }
-        fn flush(&mut self) -> io::Result<()> {
+
+
+        //    }
+//
+//    impl Write for KafkaStream {
+        pub async fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             match *self {
-                KafkaStream::Plain(ref mut s) => s.flush(),
-                KafkaStream::Ssl(ref mut s) => s.flush(),
+                KafkaStream::Plain(ref mut s) => s.write(buf).await,
+                KafkaStream::Ssl(ref mut s) => s.get_mut().0.write(buf).await // why can't I use get_mut on itself here instead...
             }
         }
     }
+//        }
+//        fn flush(&mut self) -> io::Result<()> {
+//            match *self {
+//                KafkaStream::Plain(ref mut s) => s.flush(),
+//                KafkaStream::Ssl(ref mut s) => s.flush(),
+//            }
+//        }
+//    }
 }
 
 /// A TCP stream to a remote Kafka broker.
@@ -337,19 +357,20 @@ impl fmt::Debug for KafkaConnection {
 
 impl KafkaConnection {
     pub async fn send(&mut self, msg: &[u8]) -> Result<usize, KafkaError> {
-        let r = self.stream.write(&msg[..]).map_err(From::from);
+        let r = self.stream.write(&msg[..]).await.map_err(From::from);
         trace!("Sent {} bytes to: {:?} => {:?}", msg.len(), self, r);
         r
     }
 
     pub async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), KafkaError> {
-        let r = (&mut self.stream).read_exact(buf).map_err(From::from);
+        let r = (&mut self.stream).read_exact(buf).await.map_err(From::from);
         trace!("Read {} bytes from: {:?} => {:?}", buf.len(), self, r);
         r.map( |x| { () } )
     }
 
     pub async fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, KafkaError> {
         let size: usize = size as usize;
+        // I think tokio can allocate thjis buffer
         let mut buffer: Vec<u8> = Vec::with_capacity(size);
         // this is safe actually: we are setting the len to the
         // buffers capacity and either fully populate it in the
@@ -370,10 +391,7 @@ impl KafkaConnection {
         stream: KafkaStream,
         id: u32,
         host: &str,
-        rw_timeout: Option<Duration>,
     ) -> Result<KafkaConnection, KafkaError> {
-        stream.set_read_timeout(rw_timeout)?;
-        stream.set_write_timeout(rw_timeout)?;
         Ok(KafkaConnection {
             id,
             stream,
@@ -387,26 +405,28 @@ impl KafkaConnection {
     }
 
     #[cfg(feature = "security")]
-    fn new(
+    async fn new(
         id: u32,
         host: &str,
         rw_timeout: Option<Duration>,
         security: Option<SecurityConfig>,
     ) -> Result<KafkaConnection, KafkaError> {
-        let socket = std::net::TcpStream::connect(host)?;
+        let socket = TcpStream::connect(host).await?;
         let stream = match security {
-            None => KafkaStream::Plain(TcpStream::from_std(socket)),
+            None => KafkaStream::Plain(socket),
             Some(security_config) => {
                 let domain = match host.rfind(':') {
                     None => host,
                     Some(i) => &host[..i],
                 };
                 let dns_name = webpki::DNSNameRef::try_from_ascii_str(domain).unwrap();
-                let session = rustls::ClientSession::new(&security_config.rustls_config, dns_name);
-                let stream = TcpStream::from_std(rustls::StreamOwned::new(session, socket));
-
+                let connector = TlsConnector::from(security_config.rustls_config);
+                let tls_stream = connector.connect(dns_name, socket).await?;
+                KafkaStream::Ssl(tokio_rustls::TlsStream::from(tls_stream))
+//                let session = rustls::ClientSession::new(&security_config.rustls_config, dns_name);
+//                let stream = rustls::StreamOwned::new(session, socket);
             }
         };
-        KafkaConnection::from_stream(stream, id, host, rw_timeout)
+        KafkaConnection::from_stream(stream, id, host)
     }
 }

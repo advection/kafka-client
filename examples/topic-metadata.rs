@@ -10,7 +10,8 @@ use std::process;
 use kafka::client::{FetchOffset, KafkaClient};
 
 /// Dumps available topic metadata to stdout.
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     let cfg = match Config::from_cmdline() {
@@ -20,7 +21,7 @@ fn main() {
             process::exit(1);
         }
     };
-    if let Err(e) = dump_metadata(cfg) {
+    if let Err(e) = dump_metadata(cfg).await {
         println!("{}", e);
         process::exit(1);
     }
@@ -40,10 +41,10 @@ impl Default for Offsets {
     }
 }
 
-fn dump_metadata(cfg: Config) -> Result<(), String> {
+async fn dump_metadata(cfg: Config) -> Result<(), String> {
     // ~ establish connection to kafka
     let mut client = KafkaClient::new(cfg.brokers);
-    client.load_metadata_all().map_err(|e| e.to_string())?;
+    client.load_metadata_all().await.map_err(|e| e.to_string())?;
     // ~ determine the list of topics we're supposed to report about
     let topics = if cfg.topics.is_empty() {
         let topics = client.topics();
@@ -61,7 +62,7 @@ fn dump_metadata(cfg: Config) -> Result<(), String> {
         let mut topic_width = 0;
         let mut m = HashMap::with_capacity(topics.len());
         let mut offsets = client
-            .fetch_offsets(&topics, FetchOffset::Latest)
+            .fetch_offsets(&topics, FetchOffset::Latest).await
             .map_err(|e| e.to_string())?;
         for (topic, offsets) in offsets {
             topic_width = cmp::max(topic_width, topic.len());
@@ -95,7 +96,7 @@ fn dump_metadata(cfg: Config) -> Result<(), String> {
         }
 
         offsets = client
-            .fetch_offsets(&topics, FetchOffset::Earliest)
+            .fetch_offsets(&topics, FetchOffset::Earliest).await
             .map_err(|e| e.to_string())?;
 
         for (topic, offsets) in offsets {

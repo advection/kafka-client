@@ -243,7 +243,7 @@ impl Builder {
         }
         // ~ load metadata if necessary
         if need_metadata {
-            client.load_metadata_all()?;
+            client.load_metadata_all().await?;
         }
         // ~ load consumer state
         let config = Config {
@@ -251,7 +251,7 @@ impl Builder {
             fallback_offset: self.fallback_offset,
             retry_max_bytes_limit: self.retry_max_bytes_limit,
         };
-        let state = State::new(&mut client, &config, assignment::from_map(self.assignments))?;
+        let state = State::new(&mut client, &config, assignment::from_map(self.assignments)).await?;
         debug!(
             "initialized: Consumer {{ config: {:?}, state: {:?} }}",
             config, state

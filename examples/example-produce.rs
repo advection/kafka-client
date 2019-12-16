@@ -8,7 +8,8 @@ use kafka::producer::{Producer, Record, RequiredAcks};
 /// This program demonstrates sending single message through a
 /// `Producer`.  This is a convenient higher-level client that will
 /// fit most use cases.
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     let broker = "localhost:9092";
@@ -16,12 +17,12 @@ fn main() {
 
     let data = b"hello, kafka";
 
-    if let Err(e) = produce_message(data, topic, vec![broker.to_owned()]) {
+    if let Err(e) = produce_message(data, topic, vec![broker.to_owned()]).await {
         println!("Failed producing messages: {}", e);
     }
 }
 
-fn produce_message(data: &[u8], topic: &str, brokers: Vec<String>) -> Result<(), Error> {
+async fn produce_message(data: &[u8], topic: &str, brokers: Vec<String>) -> Result<(), Error> {
     println!("About to publish a message at {:?} to: {}", brokers, topic);
 
     // ~ create a producer. this is a relatively costly operation, so
@@ -33,7 +34,7 @@ fn produce_message(data: &[u8], topic: &str, brokers: Vec<String>) -> Result<(),
         // ~ require only one broker to ack the message
         .with_required_acks(RequiredAcks::One)
         // ~ build the producer with the above settings
-        .create()?;
+        .create().await?;
 
     // ~ now send a single message.  this is a synchronous/blocking
     // operation.
@@ -49,11 +50,11 @@ fn produce_message(data: &[u8], topic: &str, brokers: Vec<String>) -> Result<(),
         partition: -1,
         key: (),
         value: data,
-    })?;
+    }).await?;
 
     // ~ we can achieve exactly the same as above in a shorter way with
     // the following call
-    producer.send(&Record::from_value(topic, data))?;
+    producer.send(&Record::from_value(topic, data)).await?;
 
     Ok(())
 }

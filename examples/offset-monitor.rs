@@ -15,7 +15,8 @@ use kafka::client::{FetchOffset, GroupOffsetStorage, KafkaClient};
 /// A very simple offset monitor for a particular topic able to show
 /// the lag for a particular consumer group. Dumps the offset/lag of
 /// the monitored topic/group to stdout every few seconds.
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     macro_rules! abort {
@@ -32,15 +33,15 @@ fn main() {
         Err(e) => abort!(e),
     };
 
-    if let Err(e) = run(cfg) {
+    if let Err(e) = run(cfg).await {
         abort!(e);
     }
 }
 
-fn run(cfg: Config) -> Result<(), Error> {
+async fn run(cfg: Config) -> Result<(), Error> {
     let mut client = KafkaClient::new(cfg.brokers.clone());
     client.set_group_offset_storage(cfg.offset_storage);
-    client.load_metadata_all()?;
+    client.load_metadata_all().await?;
 
     // ~ if no topic specified, print all available and be done.
     if cfg.topic.is_empty() {
@@ -73,7 +74,7 @@ fn run(cfg: Config) -> Result<(), Error> {
     let mut first_time = true;
     loop {
         let t = time::now();
-        state.update_partitions(&mut client, &cfg.topic, &cfg.group)?;
+        state.update_partitions(&mut client, &cfg.topic, &cfg.group).await?;
         if first_time {
             state.curr_to_prev();
             first_time = false;
@@ -113,14 +114,14 @@ impl State {
         }
     }
 
-    fn update_partitions(
+    async fn update_partitions(
         &mut self,
         client: &mut KafkaClient,
         topic: &str,
         group: &str,
     ) -> Result<(), Error> {
         // ~ get the latest topic offsets
-        let latests = client.fetch_topic_offsets(topic, FetchOffset::Latest)?;
+        let latests = client.fetch_topic_offsets(topic, FetchOffset::Latest).await?;
 
         for l in latests {
             let off = self
@@ -133,7 +134,7 @@ impl State {
 
         if !group.is_empty() {
             // ~ get the current group offsets
-            let groups = client.fetch_group_topic_offsets(group, topic)?;
+            let groups = client.fetch_group_topic_offsets(group, topic).await?;
             for g in groups {
                 let off = self
                     .offsets

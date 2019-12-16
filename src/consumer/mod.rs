@@ -153,8 +153,8 @@ impl Consumer {
     }
 
     /// Polls for the next available message data.
-    pub fn poll(&mut self) -> Result<MessageSets, KafkaError> {
-        let (n, resps) = self.fetch_messages();
+    pub async fn poll(&mut self) -> Result<MessageSets, KafkaError> {
+        let (n, resps) = self.fetch_messages().await;
         self.process_fetch_responses(n, resps?)
     }
 
@@ -171,7 +171,7 @@ impl Consumer {
     }
 
     // ~ returns (number partitions queried, fetch responses)
-    fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>, KafkaError>) {
+    async fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>, KafkaError>) {
         // ~ if there's a retry partition ... fetch messages just for
         // that one. Otherwise try to fetch messages for all assigned
         // partitions.
@@ -191,7 +191,7 @@ impl Consumer {
                     self.client.fetch_messages_for_partition(
                         &FetchPartition::new(topic, tp.partition, s.offset)
                             .with_max_bytes(s.max_bytes),
-                    ),
+                    ).await,
                 )
             }
             None => {
@@ -207,7 +207,7 @@ impl Consumer {
                 });
                 (
                     state.fetch_offsets.len() as u32,
-                    client.fetch_messages(reqs),
+                    client.fetch_messages(reqs).await,
                 )
             }
         }
@@ -419,7 +419,7 @@ impl Consumer {
     ///
     /// See also `Consumer::consume_message` and
     /// `Consumer::consume_messageset`.
-    pub fn commit_consumed(&mut self) -> Result<(), KafkaError> {
+    pub async fn commit_consumed(&mut self) -> Result<(), KafkaError> {
         if self.config.group.is_empty() {
             debug!("commit_consumed: ignoring commit request since no group defined");
             return Ok(());
@@ -446,7 +446,7 @@ impl Consumer {
                     // https://kafka.apache.org/090/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html
                     CommitOffset::new(topic, tp.partition, o.offset + 1)
                 }),
-        )?;
+        ).await?;
         for co in &mut state.consumed_offsets.values_mut() {
             if co.dirty {
                 co.dirty = false;

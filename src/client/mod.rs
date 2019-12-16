@@ -740,9 +740,9 @@ impl KafkaClient {
     /// Returns the metadata for all loaded topics underlying this
     /// client.
     #[inline]
-    pub fn load_metadata_all(&mut self) -> Result<(), KafkaError> {
+    pub async fn load_metadata_all(&mut self) -> Result<(), KafkaError> {
         self.reset_metadata();
-        self.load_metadata::<&str>(&[])
+        self.load_metadata::<&str>(&[]).await
     }
 
     /// Reloads metadata for a list of supplied topics.
@@ -1104,7 +1104,7 @@ impl KafkaClient {
     // XXX rework signaling an error; note that we need to either return the
     // messages which kafka failed to accept or otherwise tell the client about them
 
-    pub fn produce_messages<'a, 'b, I, J>(
+    pub async fn produce_messages<'a, 'b, I, J>(
         &mut self,
         acks: RequiredAcks,
         ack_timeout: Duration,
@@ -1114,7 +1114,7 @@ impl KafkaClient {
         J: AsRef<ProduceMessage<'a, 'b>>,
         I: IntoIterator<Item = J>,
     {
-        self.internal_produce_messages(acks as i16, protocol::to_millis_i32(ack_timeout)?, messages)
+        self.internal_produce_messages(acks as i16, protocol::to_millis_i32(ack_timeout)?, messages).await
     }
 
     /// Commit offset for a topic partitions on behalf of a consumer group.
@@ -1138,7 +1138,7 @@ impl KafkaClient {
     /// retrieved using `fetch_group_offsets` even from another
     /// process or at much later point in time to resume comusing the
     /// topic partitions as of these offsets.
-    pub fn commit_offsets<'a, J, I>(&mut self, group: &str, offsets: I) -> Result<(), KafkaError>
+    pub async fn commit_offsets<'a, J, I>(&mut self, group: &str, offsets: I) -> Result<(), KafkaError>
     where
         J: AsRef<CommitOffset<'a>>,
         I: IntoIterator<Item = J>,
@@ -1161,7 +1161,7 @@ impl KafkaClient {
             debug!("commit_offsets: no offsets provided");
             Ok(())
         } else {
-            __commit_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)
+            __commit_offsets(req, &mut self.state, &mut self.conn_pool, &self.config).await
         }
     }
 
@@ -1179,14 +1179,14 @@ impl KafkaClient {
     /// ```
     ///
     /// See also `KafkaClient::commit_offsets`.
-    pub fn commit_offset(
+    pub async fn commit_offset(
         &mut self,
         group: &str,
         topic: &str,
         partition: i32,
         offset: i64,
     ) -> Result<(), KafkaError> {
-        self.commit_offsets(group, &[CommitOffset::new(topic, partition, offset)])
+        self.commit_offsets(group, &[CommitOffset::new(topic, partition, offset)]).await
     }
 
     /// Fetch offset for a specified list of topic partitions of a consumer group
@@ -1207,7 +1207,7 @@ impl KafkaClient {
     /// ```
     ///
     /// See also `KafkaClient::fetch_group_topic_offsets`.
-    pub fn fetch_group_offsets<'a, J, I>(
+    pub async fn fetch_group_offsets<'a, J, I>(
         &mut self,
         group: &str,
         partitions: I,
@@ -1230,7 +1230,7 @@ impl KafkaClient {
                 return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into() );
             }
         }
-        __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)
+        __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config).await
     }
 
     /// Fetch offset for all partitions of a particular topic of a consumer group
@@ -1244,7 +1244,7 @@ impl KafkaClient {
     /// client.load_metadata_all().unwrap();
     /// let offsets = client.fetch_group_topic_offsets("my-group", "my-topic").unwrap();
     /// ```
-    pub fn fetch_group_topic_offsets(
+    pub async fn fetch_group_topic_offsets(
         &mut self,
         group: &str,
         topic: &str,
@@ -1265,16 +1265,14 @@ impl KafkaClient {
             }
         }
 
-        Ok(
-            __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)?
-                .remove(topic)
-                .unwrap_or_else(Vec::new),
-        )
+
+        __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config).await
+            .map(|mut x| x.remove(topic).unwrap_or_else(Vec::new))
     }
 }
 
-impl KafkaClientInternals for KafkaClient {
-    fn internal_produce_messages<'a, 'b, I, J>(
+impl KafkaClient {
+    pub async fn internal_produce_messages<'a, 'b, I, J>(
         &mut self,
         required_acks: i16,
         ack_timeout: i32,
@@ -1308,11 +1306,11 @@ impl KafkaClientInternals for KafkaClient {
                     .add(msg.topic, msg.partition, msg.key, msg.value),
             }
         }
-        __produce_messages(&mut self.conn_pool, reqs, required_acks == 0)
+        __produce_messages(&mut self.conn_pool, reqs, required_acks == 0).await
     }
 }
 
-fn __get_group_coordinator<'a>(
+async fn __get_group_coordinator<'a>(
     group: &str,
     state: &'a mut state::ClientState,
     conn_pool: &mut network::Connections,
@@ -1334,12 +1332,12 @@ fn __get_group_coordinator<'a>(
         // been called yet; if there are no connections available we can
         // try connecting to the user specified bootstrap server similar
         // to the way `load_metadata` works.
-        let conn = conn_pool.get_conn_any(now).expect("available connection");
+        let conn = conn_pool.get_conn_any(now).await.expect("available connection");
         debug!(
             "get_group_coordinator: asking for coordinator of '{}' on: {:?}",
             group, conn
         );
-        let r = __send_receive_conn::<_, protocol::GroupCoordinatorResponse>(conn, &req)?;
+        let r = __send_receive_conn::<_, protocol::GroupCoordinatorResponse>(conn, &req).await?;
         let retry_code;
         match r.into_result() {
             Ok(r) => {
@@ -1367,8 +1365,8 @@ fn __get_group_coordinator<'a>(
     }
 }
 
-fn __commit_offsets(
-    req: protocol::OffsetCommitRequest,
+async fn __commit_offsets<'a, 'b>(
+    req: protocol::OffsetCommitRequest<'a, 'b>,
     state: &mut state::ClientState,
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
@@ -1378,12 +1376,12 @@ fn __commit_offsets(
         let now = Instant::now();
 
         let tps = {
-            let host = __get_group_coordinator(req.group, state, conn_pool, config, now)?;
+            let host = __get_group_coordinator(req.group, state, conn_pool, config, now).await?;
             debug!(
                 "__commit_offsets: sending offset commit request '{:?}' to: {}",
                 req, host
             );
-            __send_receive::<_, protocol::OffsetCommitResponse>(conn_pool, host, now, &req)?
+            __send_receive::<_, protocol::OffsetCommitResponse>(conn_pool, host, now, &req).await?
                 .topic_partitions
         };
 
@@ -1431,8 +1429,8 @@ fn __commit_offsets(
     }
 }
 
-fn __fetch_group_offsets(
-    req: protocol::OffsetFetchRequest,
+async fn __fetch_group_offsets<'a, 'b, 'c>(
+    req: protocol::OffsetFetchRequest<'a, 'b, 'c>,
     state: &mut state::ClientState,
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
@@ -1442,12 +1440,12 @@ fn __fetch_group_offsets(
         let now = Instant::now();
 
         let r = {
-            let host = __get_group_coordinator(req.group, state, conn_pool, config, now)?;
+            let host = __get_group_coordinator(req.group, state, conn_pool, config, now).await?;
             debug!(
                 "fetch_group_offsets: sending request {:?} to: {}",
                 req, host
             );
-            __send_receive::<_, protocol::OffsetFetchResponse>(conn_pool, host, now, &req)?
+            __send_receive::<_, protocol::OffsetFetchResponse>(conn_pool, host, now, &req).await?
         };
 
         debug!("fetch_group_offsets: received response: {:#?}", r);
@@ -1510,10 +1508,10 @@ fn __fetch_group_offsets(
 }
 
 /// ~ carries out the given fetch requests and returns the response
-async fn __fetch_messages(
+async fn __fetch_messages<'a, 'b>(
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
-    reqs: HashMap<&str, protocol::FetchRequest>,
+    reqs: HashMap<&str, protocol::FetchRequest<'a, 'b>>,
 ) -> Result<Vec<fetch::Response>, KafkaError> {
     let now = Instant::now();
     let mut res = Vec::with_capacity(reqs.len());
@@ -1528,21 +1526,21 @@ async fn __fetch_messages(
 }
 
 /// ~ carries out the given produce requests and returns the response
-fn __produce_messages(
+async fn __produce_messages<'a, 'b>(
     conn_pool: &mut network::Connections,
-    reqs: HashMap<&str, protocol::ProduceRequest>,
+    reqs: HashMap<&str, protocol::ProduceRequest<'a, 'b>>,
     no_acks: bool,
 ) -> Result<Vec<ProduceConfirm>, KafkaError> {
     let now = Instant::now();
     if no_acks {
         for (host, req) in reqs {
-            __send_noack::<_, protocol::ProduceResponse>(conn_pool, host, now, req)?;
+            __send_noack::<_, protocol::ProduceResponse>(conn_pool, host, now, req).await?;
         }
         Ok(vec![])
     } else {
         let mut res: Vec<ProduceConfirm> = vec![];
         for (host, req) in reqs {
-            let resp = __send_receive::<_, protocol::ProduceResponse>(conn_pool, &host, now, req)?;
+            let resp = __send_receive::<_, protocol::ProduceResponse>(conn_pool, &host, now, req).await?;
             for tpo in resp.get_response() {
                 res.push(tpo);
             }
@@ -1561,16 +1559,17 @@ where
     T: ToByte,
     V: FromByte,
 {
-    __send_receive_conn::<T, V>(conn_pool.get_conn(host, now).await?, req)
+    // can we map over futures instead of always awaiting them?
+    __send_receive_conn::<T, V>(conn_pool.get_conn(host, now).await?, req).await
 }
 
-fn __send_receive_conn<T, V>(conn: &mut network::KafkaConnection, req: T) -> Result<V::R, KafkaError>
+async fn __send_receive_conn<T, V>(conn: &mut network::KafkaConnection, req: T) -> Result<V::R, KafkaError>
 where
     T: ToByte,
     V: FromByte,
 {
-    __send_request(conn, req)?;
-    __get_response::<V>(conn)
+    __send_request(conn, req).await?;
+    __get_response::<V>(conn).await
 }
 
 async fn __send_noack<T, V>(
