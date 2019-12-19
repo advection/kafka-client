@@ -199,7 +199,7 @@ impl Config {
             "Specify kafka brokers (comma separated)",
             "HOSTS",
         );
-        opts.optopt("", "topic", "Specify target topic", "NAME");
+        opts.optopt("t", "topic", "Specify target topic", "NAME");
         opts.optopt("", "input", "Specify input file", "FILE");
         opts.optopt(
             "",

@@ -108,7 +108,7 @@ pub struct SnappyReader<'a> {
 }
 
 impl<'a> SnappyReader<'a> {
-    pub fn new(mut stream: &[u8]) -> io::Result<SnappyReader<'_>> {
+    pub fn new(stream: &[u8]) -> io::Result<SnappyReader<'_>> {
         validate_stream(stream).map(|stream| {
             SnappyReader {
                 compressed_data: stream,

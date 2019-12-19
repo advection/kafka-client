@@ -6,13 +6,11 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{Read, Write};
 use std::mem;
 use tokio::net::{TcpStream};
 use std::net::{Shutdown};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::prelude::*;
 
 #[cfg(feature = "security")]
 use rustls::ClientConfig;
@@ -30,7 +28,7 @@ pub struct SecurityConfig {
 
 #[cfg(feature = "security")]
 impl SecurityConfig {
-    /// In the future this will also support a kerbos via #51.
+    /// In the future this will also support a kerberos via #51.
     pub fn new(rustls_config: ClientConfig) -> Self {
         let rustls_config = Arc::new(rustls_config);
         SecurityConfig { rustls_config }
@@ -171,7 +169,7 @@ impl Connections {
         self.config.idle_timeout
     }
 
-    pub async fn get_conn<'a>(&'a mut self, host: &str, now: Instant) -> Result<&'a mut KafkaConnection, KafkaError> {
+    pub async fn get_conn(& mut self, host: &str, now: Instant) -> Result<& mut KafkaConnection, KafkaError> {
         if let Some(conn) = self.conns.get_mut(host) {
             if now.duration_since(conn.last_checkout) >= self.config.idle_timeout {
                 debug!("Idle timeout reached: {:?}", conn.item);
@@ -244,13 +242,11 @@ use tokio_rustls::TlsConnector;
 #[cfg(feature = "security")]
 mod tlsed {
     use tokio_rustls::TlsStream;
-   // use std::io::{self, Read, Write};
     use std::net::Shutdown;
     use tokio::prelude::*;
     use tokio::net::TcpStream;
 
     use super::IsSecured;
-    use std::io::{Read, Write};
 
     pub enum KafkaStream {
         Plain(TcpStream),
@@ -270,7 +266,7 @@ mod tlsed {
         fn get_ref(&self) -> &TcpStream {
             match *self {
                 KafkaStream::Plain(ref s) => s,
-                KafkaStream::Ssl(ref s) => s.get_ref().0 // possible to unpack as part of the match?
+                KafkaStream::Ssl(ref s) => s.get_ref().0
             }
         }
 
@@ -280,17 +276,6 @@ mod tlsed {
                 KafkaStream::Ssl(ref mut s) => s.get_mut().0 // possible to unpack as part of the match?
             }
         }
-
-
-        /*
-        pub fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-            self.get_ref().set_read_timeout(dur)
-        }
-
-        pub fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-            self.get_ref().set_write_timeout(dur)
-        }
-*/
 
         pub fn shutdown(&mut self, how: Shutdown) -> io::Result<()> {
             self.get_ref().shutdown(how)
@@ -303,7 +288,6 @@ mod tlsed {
                 KafkaStream::Ssl(ref mut s) => s.get_mut().0.read(buf).await // why can't I use get_mut on itself here instead...
             }
         }
-
         pub async fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             match *self {
                 KafkaStream::Plain(ref mut s) => s.read_exact(buf).await,
@@ -365,7 +349,7 @@ impl KafkaConnection {
     pub async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), KafkaError> {
         let r = (&mut self.stream).read_exact(buf).await.map_err(From::from);
         trace!("Read {} bytes from: {:?} => {:?}", buf.len(), self, r);
-        r.map( |x| { () } )
+        r.map( |_| { () } )
     }
 
     pub async fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, KafkaError> {
@@ -423,8 +407,6 @@ impl KafkaConnection {
                 let connector = TlsConnector::from(security_config.rustls_config);
                 let tls_stream = connector.connect(dns_name, socket).await?;
                 KafkaStream::Ssl(tokio_rustls::TlsStream::from(tls_stream))
-//                let session = rustls::ClientSession::new(&security_config.rustls_config, dns_name);
-//                let stream = rustls::StreamOwned::new(session, socket);
             }
         };
         KafkaConnection::from_stream(stream, id, host)

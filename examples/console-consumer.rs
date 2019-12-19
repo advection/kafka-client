@@ -72,7 +72,6 @@ async fn process(cfg: Config) -> Result<(), Error> {
             c.commit_consumed().await?;
         }
     }
-    Ok(())
 }
 
 
@@ -107,12 +106,12 @@ impl Config {
         let mut opts = getopts::Options::new();
         opts.optflag("h", "help", "Print this help screen");
         opts.optopt(
-            "",
+            "b",
             "brokers",
             "Specify kafka brokers (comma separated)",
             "HOSTS",
         );
-        opts.optopt("", "topics", "Specify topics (comma separated)", "NAMES");
+        opts.optopt("t", "topics", "Specify topics (comma separated)", "NAMES");
         opts.optopt("", "group", "Specify the consumer group", "NAME");
         opts.optflag("", "no-commit", "Do not commit group offsets");
         opts.optopt(
