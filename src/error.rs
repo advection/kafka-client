@@ -323,6 +323,9 @@ impl From<&TLSError> for KafkaErrorKind {
     fn from(err: &TLSError) -> KafkaErrorKind {
         KafkaErrorKind::TLSError(err.clone())
     }
+
+    // xxx: return something as default?
+//    unreachable!()
 }
 
 impl From<io::Error> for KafkaError {

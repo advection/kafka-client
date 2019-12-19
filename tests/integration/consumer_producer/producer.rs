@@ -1,4 +1,6 @@
 use super::*;
+
+use env_logger;
 use kafka::error;
 use kafka::producer::Record;
 use kafka::error::KafkaErrorKind;
@@ -15,6 +17,7 @@ fn test_producer_send() {
 /// Sending to a non-existent topic should fail.
 #[test]
 fn test_producer_send_non_existent_topic() {
+    let _ = env_logger::init();
     let mut producer = test_producer();
 
     let error_code = match producer

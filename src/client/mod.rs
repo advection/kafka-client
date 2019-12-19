@@ -1265,7 +1265,6 @@ impl KafkaClient {
             }
         }
 
-
         __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config).await
             .map(|mut x| x.remove(topic).unwrap_or_else(Vec::new))
     }

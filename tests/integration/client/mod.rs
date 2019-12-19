@@ -12,6 +12,12 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Duration;
 
+use env_logger;
+
+use kafka::client::{CommitOffset, PartitionOffset, FetchPartition, ProduceMessage,
+                    RequiredAcks, FetchOffset};
+use kafka::client::fetch::Response;
+
 fn flatten_fetched_messages(resps: &[Response]) -> Vec<(&str, i32, &[u8])> {
     let mut messages = Vec::new();
 
@@ -31,8 +37,8 @@ fn flatten_fetched_messages(resps: &[Response]) -> Vec<(&str, i32, &[u8])> {
 #[test]
 fn test_kafka_client_load_metadata() {
     let hosts = vec![LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()];
+    let mut client = new_kafka_client();
     let client_id = "test-id".to_string();
-    let mut client = KafkaClient::new(hosts.clone());
     client.set_client_id(client_id.clone());
     client.load_metadata_all().unwrap();
 
@@ -75,6 +81,7 @@ fn test_kafka_client_load_metadata() {
 #[test]
 #[allow(clippy::block_in_if_condition_stmt)]
 fn test_produce_fetch_messages() {
+    let _ = env_logger::init();
     let mut client = new_ready_kafka_client();
     let topics = [TEST_TOPIC_NAME, TEST_TOPIC_NAME_2];
     let init_latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).unwrap();
@@ -160,6 +167,7 @@ fn test_produce_fetch_messages() {
 
 #[test]
 fn test_commit_offset() {
+    let _ = env_logger::init();
     let mut client = new_ready_kafka_client();
 
     for &(partition, offset) in &[
