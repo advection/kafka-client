@@ -3,6 +3,8 @@ sudo: false
 cache: cargo
 
 rust:
+  - stable
+  - beta
   - nightly
 
 services:
@@ -21,6 +23,7 @@ script:
 env:
   global:
     - RUST_TEST_THREADS: 1
+    - TRAVIS_CARGO_NIGHTLY_FEATURE: ""
 
   matrix:
     - KAFKA_VER=0.8.2.2
