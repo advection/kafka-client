@@ -4,7 +4,7 @@
 //! - `kafka_rust::producer::Producer` - for sending message to Kafka
 //! - `kafka_rust::consumer::Consumer` - for retrieving/consuming messages from Kafka
 //! - `kafka_rust::client::KafkaClient` - a lower-level, general purpose client leaving
-//!   you with more power but also more resposibility
+//!   you with more power but also more responibility
 //!
 //! See module level documentation corresponding to each client individually.
 #![recursion_limit = "128"]
@@ -24,3 +24,4 @@ pub mod error;
 pub mod producer;
 mod protocol;
 mod utils;
+mod accumulator;

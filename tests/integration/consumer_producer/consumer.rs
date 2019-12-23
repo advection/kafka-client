@@ -7,11 +7,11 @@ use env_logger;
 use kafka_rust::error::KafkaErrorKind;
 
 /// Tests that consuming one message works
-#[test]
-fn test_consumer_poll() {
+#[tokio::test]
+async fn test_consumer_poll() {
     // poll once to set a position in the topic
-    let mut consumer = test_consumer();
-    let mut messages = consumer.poll().unwrap();
+    let mut consumer = test_consumer().await;
+    let mut messages = consumer.poll().await.unwrap();
     assert!(
         messages.is_empty(),
         "messages was not empty: {:?}",
@@ -20,15 +20,16 @@ fn test_consumer_poll() {
 
     // send a message and then poll it and ensure it is the correct message
     let correct_message_contents = b"test_consumer_poll";
-    let mut producer = test_producer();
+    let mut producer = test_producer().await;
     producer
         .send(&Record::from_value(
             TEST_TOPIC_NAME,
             correct_message_contents.as_ref(),
         ))
+        .await
         .unwrap();
 
-    messages = consumer.poll().unwrap();
+    messages = consumer.poll().await.unwrap();
     let mut messages_iter = messages.iter();
     let message_set = messages_iter.next().unwrap();
 
@@ -46,24 +47,24 @@ fn test_consumer_poll() {
 }
 
 /// Test Consumer::commit_messageset
-#[test]
-fn test_consumer_commit_messageset() {
+#[tokio::test]
+async fn test_consumer_commit_messageset() {
     let _ = env_logger::try_init();
 
-    let mut consumer = test_consumer();
+    let mut consumer = test_consumer().await;
 
     // get the offsets at the beginning of the test
     let start_offsets = get_group_offsets(
-        &mut new_ready_kafka_client(),
+        &mut new_ready_kafka_client().await,
         TEST_GROUP_NAME,
         TEST_TOPIC_NAME,
         Some(0),
-    );
+    ).await;
 
     debug!("start offsets: {:?}", start_offsets);
 
     // poll once to set a position in the topic
-    let messages = consumer.poll().unwrap();
+    let messages = consumer.poll().await.unwrap();
     assert!(
         messages.is_empty(),
         "messages was not empty: {:?}",
@@ -72,18 +73,18 @@ fn test_consumer_commit_messageset() {
 
     // send some messages to the topic
     const NUM_MESSAGES: i64 = 100;
-    send_random_messages(&mut test_producer(), TEST_TOPIC_NAME, NUM_MESSAGES as u32);
+    send_random_messages(&mut test_producer().await, TEST_TOPIC_NAME, NUM_MESSAGES as u32);
 
     let mut num_messages = 0;
 
     'read: loop {
-        for ms in consumer.poll().unwrap().iter() {
+        for ms in consumer.poll().await.unwrap().iter() {
             let messages = ms.messages();
             num_messages += messages.len();
             consumer.consume_messageset(ms).unwrap();
         }
 
-        consumer.commit_consumed().unwrap();
+        consumer.commit_consumed().await.unwrap();
 
         if num_messages >= (NUM_MESSAGES as usize) {
             break 'read;
@@ -97,11 +98,11 @@ fn test_consumer_commit_messageset() {
 
     // get the latest offsets and make sure they add up to the number of messages
     let latest_offsets = get_group_offsets(
-        &mut new_ready_kafka_client(),
+        &mut new_ready_kafka_client().await,
         TEST_GROUP_NAME,
         TEST_TOPIC_NAME,
         Some(0),
-    );
+    ).await;
 
     debug!("end offsets: {:?}", latest_offsets);
 
@@ -128,24 +129,24 @@ fn test_consumer_commit_messageset() {
 
 /// Verify that if Consumer::commit_consumed is called without consuming any
 /// message sets, nothing is committed.
-#[test]
-fn test_consumer_commit_messageset_no_consumes() {
+#[tokio::test]
+async fn test_consumer_commit_messageset_no_consumes() {
     let _ = env_logger::try_init();
 
-    let mut consumer = test_consumer();
+    let mut consumer = test_consumer().await;
 
     // get the offsets at the beginning of the test
     let start_offsets = get_group_offsets(
-        &mut new_ready_kafka_client(),
+        &mut new_ready_kafka_client().await,
         TEST_GROUP_NAME,
         TEST_TOPIC_NAME,
         Some(0),
-    );
+    ).await;
 
     debug!("start offsets: {:?}", start_offsets);
 
     // poll once to set a position in the topic
-    let messages = consumer.poll().unwrap();
+    let messages = consumer.poll().await.unwrap();
     assert!(
         messages.is_empty(),
         "messages was not empty: {:?}",
@@ -154,12 +155,12 @@ fn test_consumer_commit_messageset_no_consumes() {
 
     // send some messages to the topic
     const NUM_MESSAGES: i64 = 100;
-    send_random_messages(&mut test_producer(), TEST_TOPIC_NAME, NUM_MESSAGES as u32);
+    send_random_messages(&mut test_producer().await, TEST_TOPIC_NAME, NUM_MESSAGES as u32);
 
     let mut num_messages = 0;
 
     'read: loop {
-        for ms in consumer.poll().unwrap().iter() {
+        for ms in consumer.poll().await.unwrap().iter() {
             let messages = ms.messages();
             num_messages += messages.len();
 
@@ -167,7 +168,7 @@ fn test_consumer_commit_messageset_no_consumes() {
             // consumer.consume_messageset(ms).unwrap();
         }
 
-        consumer.commit_consumed().unwrap();
+        consumer.commit_consumed().await.unwrap();
 
         if num_messages >= (NUM_MESSAGES as usize) {
             break 'read;
@@ -185,7 +186,7 @@ fn test_consumer_commit_messageset_no_consumes() {
         TEST_GROUP_NAME,
         TEST_TOPIC_NAME,
         Some(0),
-    );
+    ).await;
 
     debug!("end offsets: {:?}", latest_offsets);
 
@@ -200,11 +201,12 @@ fn test_consumer_commit_messageset_no_consumes() {
 }
 
 /// Consuming from a non-existent topic should fail.
-#[test]
-fn test_consumer_non_existent_topic() {
+#[tokio::test]
+async fn test_consumer_non_existent_topic() {
     let consumer_err = test_consumer_builder()
         .with_topic_partitions("foo_topic".to_owned(), &TEST_TOPIC_PARTITIONS)
         .create()
+        .await
         .unwrap_err();
 
     let error_code = match consumer_err.kind() {

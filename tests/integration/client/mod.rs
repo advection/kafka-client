@@ -28,13 +28,13 @@ fn flatten_fetched_messages(resps: &[Response]) -> Vec<(&str, i32, &[u8])> {
     messages
 }
 
-#[test]
-fn test_kafka_client_load_metadata() {
+#[tokio::test]
+async fn test_kafka_client_load_metadata() {
     let hosts = vec![LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()];
     let client_id = "test-id".to_string();
     let mut client = KafkaClient::new(hosts.clone());
     client.set_client_id(client_id.clone());
-    client.load_metadata_all().unwrap();
+    client.load_metadata_all().await.unwrap();
 
     let topics = client.topics();
 
@@ -72,12 +72,12 @@ fn test_kafka_client_load_metadata() {
 /// * KafkaClient::produce_messages
 /// * KafkaClient::fetch_messages
 /// * KafkaClient::fetch_offsets
-#[test]
+#[tokio::test]
 #[allow(clippy::block_in_if_condition_stmt)]
-fn test_produce_fetch_messages() {
-    let mut client = new_ready_kafka_client();
+async fn test_produce_fetch_messages() {
+    let mut client = new_ready_kafka_client().await;
     let topics = [TEST_TOPIC_NAME, TEST_TOPIC_NAME_2];
-    let init_latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).unwrap();
+    let init_latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).await.unwrap();
 
     // first send the messages and verify correct confirmation responses
     // from kafka
@@ -90,6 +90,7 @@ fn test_produce_fetch_messages() {
 
     let resp = client
         .produce_messages(RequiredAcks::All, Duration::from_millis(1000), req)
+        .await
         .unwrap();
 
     assert_eq!(2, resp.len());
@@ -122,7 +123,7 @@ fn test_produce_fetch_messages() {
 
     // now fetch the messages back and verify that they are the correct
     // messages
-    let fetch_resps = client.fetch_messages(fetches).unwrap();
+    let fetch_resps = client.fetch_messages(fetches).await.unwrap();
     let messages = flatten_fetched_messages(&fetch_resps);
 
     let correct_messages: Vec<(&str, _, &[u8])> = vec![
@@ -136,7 +137,7 @@ fn test_produce_fetch_messages() {
         .into_iter()
         .all(|c_msg| { messages.contains(&c_msg) }));
 
-    let end_latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).unwrap();
+    let end_latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).await.unwrap();
 
     for (topic, begin_partition_offsets) in init_latest_offsets {
         let begin_partition_offsets: HashMap<i32, i64> = begin_partition_offsets
@@ -158,9 +159,9 @@ fn test_produce_fetch_messages() {
     }
 }
 
-#[test]
-fn test_commit_offset() {
-    let mut client = new_ready_kafka_client();
+#[tokio::test]
+async fn test_commit_offset() {
+    let mut client = new_ready_kafka_client().await;
 
     for &(partition, offset) in &[
         (TEST_TOPIC_PARTITIONS[0], 100),
@@ -172,10 +173,12 @@ fn test_commit_offset() {
     ] {
         client
             .commit_offset(TEST_GROUP_NAME, TEST_TOPIC_NAME, partition, offset)
+            .await
             .unwrap();
 
         let partition_offsets: HashSet<PartitionOffset> = client
             .fetch_group_topic_offsets(TEST_GROUP_NAME, TEST_TOPIC_NAME)
+            .await
             .unwrap()
             .into_iter()
             .collect();
@@ -186,9 +189,9 @@ fn test_commit_offset() {
     }
 }
 
-#[test]
-fn test_commit_offsets() {
-    let mut client = new_ready_kafka_client();
+#[tokio::test]
+async fn test_commit_offsets() {
+    let mut client = new_ready_kafka_client().await;
 
     let commits = [
         [
@@ -230,10 +233,11 @@ fn test_commit_offsets() {
     ];
 
     for commit_pair in &commits {
-        client.commit_offsets(TEST_GROUP_NAME, commit_pair).unwrap();
+        client.commit_offsets(TEST_GROUP_NAME, commit_pair).await.unwrap();
 
         let partition_offsets: HashSet<PartitionOffset> = client
             .fetch_group_topic_offsets(TEST_GROUP_NAME, TEST_TOPIC_NAME)
+            .await
             .unwrap()
             .into_iter()
             .collect();

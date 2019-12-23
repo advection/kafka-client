@@ -14,11 +14,12 @@ use rand::RngCore;
 
 const RANDOM_MESSAGE_SIZE: usize = 32;
 
-pub fn test_producer() -> Producer {
+pub async fn test_producer() -> Producer {
     Producer::from_hosts(vec![LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()])
         .with_ack_timeout(Duration::from_secs(1))
         .with_required_acks(RequiredAcks::All)
         .create()
+        .await
         .unwrap()
 }
 
@@ -42,17 +43,17 @@ pub fn test_consumer_builder() -> kafka_rust::consumer::Builder {
     ]))
 }
 
-pub fn test_consumer() -> Consumer {
-    test_consumer_with_client(new_ready_kafka_client())
+pub async fn test_consumer() -> Consumer {
+    test_consumer_with_client(new_ready_kafka_client().await).await
 }
 
 /// Return a ready Kafka consumer with all default settings
-pub fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
+pub async fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
     let topics = [TEST_TOPIC_NAME, TEST_TOPIC_NAME_2];
 
     // Fetch the latest offsets and commit those so that this consumer
     // is always at the latest offset before being used.
-    let latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).unwrap();
+    let latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).await.unwrap();
 
     debug!("latest_offsets: {:?}", latest_offsets);
 
@@ -64,13 +65,15 @@ pub fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
 
             client
                 .commit_offset(TEST_GROUP_NAME, &topic, po.partition, po.offset)
+                .await
                 .unwrap();
         }
     }
 
-    client.load_metadata_all().unwrap();
+    client.load_metadata_all().await.unwrap();
     let partition_offsets: HashSet<PartitionOffset> = client
         .fetch_group_topic_offsets(TEST_GROUP_NAME, TEST_TOPIC_NAME)
+        .await
         .unwrap()
         .into_iter()
         .collect();
@@ -79,12 +82,13 @@ pub fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
 
     test_consumer_config!(Consumer::from_client(client))
         .create()
+        .await
         .unwrap()
 }
 
 /// Send `num_messages` randomly-generated messages to the given topic with
 /// the given producer.
-fn send_random_messages(producer: &mut Producer, topic: &str, num_messages: u32) {
+async fn send_random_messages(producer: &mut Producer, topic: &str, num_messages: u32) {
     let mut random_message_buf = [0u8; RANDOM_MESSAGE_SIZE];
     let mut rng = rand::thread_rng();
 
@@ -92,6 +96,7 @@ fn send_random_messages(producer: &mut Producer, topic: &str, num_messages: u32)
         rng.fill_bytes(&mut random_message_buf);
         producer
             .send(&Record::from_value(topic, &random_message_buf[..]))
+            .await
             .unwrap();
     }
 }
@@ -100,7 +105,7 @@ fn send_random_messages(producer: &mut Producer, topic: &str, num_messages: u32)
 /// If the offset is -1 (i.e., there isn't an offset committed for a partition),
 /// use the given optional default value in place of -1. If the default value is
 /// None, -1 is kept.
-pub(crate) fn get_group_offsets(
+pub(crate) async fn get_group_offsets(
     client: &mut KafkaClient,
     group: &str,
     topic: &str,
@@ -108,6 +113,7 @@ pub(crate) fn get_group_offsets(
 ) -> HashMap<i32, i64> {
     client
         .fetch_group_topic_offsets(group, topic)
+        .await
         .unwrap()
         .iter()
         .map(|po| {

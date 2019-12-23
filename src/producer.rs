@@ -17,18 +17,23 @@
 //! use std::time::Duration;
 //! use kafka_rust::producer::{Producer, Record, RequiredAcks};
 //!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut producer =
 //!     Producer::from_hosts(vec!("localhost:9092".to_owned()))
 //!         .with_ack_timeout(Duration::from_secs(1))
 //!         .with_required_acks(RequiredAcks::One)
 //!         .create()
+//!         .await
 //!         .unwrap();
 //!
 //! let mut buf = String::with_capacity(2);
 //! for i in 0..10 {
 //!   let _ = write!(&mut buf, "{}", i); // some computation of the message data to be sent
-//!   producer.send(&Record::from_value("my-topic", buf.as_bytes())).unwrap();
+//!   producer.send(&Record::from_value("my-topic", buf.as_bytes())).await.unwrap();
 //!   buf.clear();
+//! }
+//! Ok(())
 //! }
 //! ```
 //!

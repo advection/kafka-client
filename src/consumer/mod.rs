@@ -11,22 +11,27 @@
 //! ```no_run
 //! use kafka_rust::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 //!
-//! let mut consumer =
-//!    Consumer::from_hosts(vec!("localhost:9092".to_owned()))
-//!       .with_topic_partitions("my-topic".to_owned(), &[0, 1])
-//!       .with_fallback_offset(FetchOffset::Earliest)
-//!       .with_group("my-group".to_owned())
-//!       .with_offset_storage(GroupOffsetStorage::Kafka)
-//!       .create()
-//!       .unwrap();
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!    let mut consumer =
+//!        Consumer::from_hosts(vec!("localhost:9092".to_owned()))
+//!           .with_topic_partitions("my-topic".to_owned(), &[0, 1])
+//!           .with_fallback_offset(FetchOffset::Earliest)
+//!           .with_group("my-group".to_owned())
+//!           .with_offset_storage(GroupOffsetStorage::Kafka)
+//!           .create()
+//!           .await
+//!           .unwrap();
 //! loop {
-//!   for ms in consumer.poll().unwrap().iter() {
+//!   for ms in consumer.poll().await.unwrap().iter() {
 //!     for m in ms.messages() {
 //!       println!("{:?}", m);
 //!     }
 //!     consumer.consume_messageset(ms);
 //!   }
-//!   consumer.commit_consumed().unwrap();
+//!   consumer.commit_consumed().await.unwrap();
+//! }
+//! Ok(())
 //! }
 //! ```
 //!

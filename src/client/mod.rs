@@ -385,8 +385,12 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     pub fn new(hosts: Vec<String>) -> KafkaClient {
         KafkaClient {
@@ -421,8 +425,8 @@ impl KafkaClient {
     ///
     /// ```no_run
     /// use kafka_rust::client::{KafkaClient, SecurityConfig};
-    ///
-    /// fn main() {
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     let (key, cert) = ("client.key".to_string(), "client.crt".to_string());
     ///
     ///     use rustls;
@@ -434,7 +438,8 @@ impl KafkaClient {
 
     ///     let mut client = KafkaClient::new_secure(vec!["localhost:9092".to_string()], SecurityConfig::new(rustls_config));
     ///
-    ///     client.load_metadata_all().unwrap();
+    ///     client.load_metadata_all().await.unwrap();
+    ///     Ok(())
     /// }
     /// ```
     /// See also `SecurityConfig#with_hostname_verification` to disable hostname verification.
@@ -496,16 +501,21 @@ impl KafkaClient {
         &self.config.client_id
     }
 
-    /// Sets the compression algorithm to use when sending out messages.
+    /// Sets the compression algorithm to use when sending out messages. this should be on the builder
+    /// don't want this exposed
     ///
     /// # Example
     ///
     /// ```no_run
     /// use kafka_rust::client::{Compression, KafkaClient};
     ///
-    /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// client.set_compression(Compression::NONE);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.set_compression(Compression::NONE);
+    ///     Ok(())
+    /// }
     /// ```
     #[inline]
     pub fn set_compression(&mut self, compression: Compression) {
@@ -553,11 +563,15 @@ impl KafkaClient {
     /// use std::time::Duration;
     /// use kafka_rust::client::{KafkaClient, FetchPartition};
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// client.set_fetch_max_wait_time(Duration::from_millis(100));
-    /// client.set_fetch_min_bytes(64 * 1024);
-    /// let r = client.fetch_messages(&[FetchPartition::new("my-topic", 0, 0)]);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.set_fetch_max_wait_time(Duration::from_millis(100));
+    ///     client.set_fetch_min_bytes(64 * 1024);
+    ///     let r = client.fetch_messages(&[FetchPartition::new("my-topic", 0, 0)]).await;
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// See also `KafkaClient::set_fetch_max_wait_time(..)` and
@@ -711,15 +725,19 @@ impl KafkaClient {
     /// use kafka_rust::client::KafkaClient;
     /// use kafka_rust::client::metadata::Broker;
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// for topic in client.topics() {
-    ///   for partition in topic.partitions() {
-    ///     println!("{} #{} => {}", topic.name(), partition.id(),
-    ///              partition.leader()
-    ///                       .map(Broker::host)
-    ///                       .unwrap_or("no-leader!"));
-    ///   }
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     for topic in client.topics() {
+    ///       for partition in topic.partitions() {
+    ///         println!("{} #{} => {}", topic.name(), partition.id(),
+    ///         partition.leader()
+    ///             .map(Broker::host)
+    ///             .unwrap_or("no-leader!"));
+    ///         }
+    ///     }
+    ///     Ok(())
     /// }
     /// ```
     #[inline]
@@ -733,10 +751,14 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// for topic in client.topics().names() {
-    ///   println!("topic: {}", topic);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     for topic in client.topics().names() {
+    ///         println!("topic: {}", topic);
+    ///     }
+    ///     Ok(())
     /// }
     /// ```
     ///
@@ -764,8 +786,12 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// let _ = client.load_metadata(&["my-topic"]).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     let _ = client.load_metadata(&["my-topic"]).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// Returns the metadata for _all_ loaded topics underlying this
@@ -822,10 +848,14 @@ impl KafkaClient {
     /// ```no_run
     /// use kafka_rust::client::KafkaClient;
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// let topics: Vec<String> = client.topics().names().map(ToOwned::to_owned).collect();
-    /// let offsets = client.fetch_offsets(&topics, kafka_rust::client::FetchOffset::Latest).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let topics: Vec<String> = client.topics().names().map(ToOwned::to_owned).collect();
+    ///     let offsets = client.fetch_offsets(&topics, kafka_rust::client::FetchOffset::Latest).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// Returns a mapping of topic name to `PartitionOffset`s for each
@@ -928,9 +958,13 @@ impl KafkaClient {
     /// ```no_run
     /// use kafka_rust::client::{KafkaClient, FetchOffset};
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// let offsets = client.fetch_topic_offsets("my-topic", FetchOffset::Latest).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let offsets = client.fetch_topic_offsets("my-topic", FetchOffset::Latest).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// Returns a vector of the offset data for each available partition.
@@ -991,29 +1025,33 @@ impl KafkaClient {
     /// ```no_run
     /// use kafka_rust::client::{KafkaClient, FetchPartition};
     ///
-    /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// let reqs = &[FetchPartition::new("my-topic", 0, 0),
-    ///              FetchPartition::new("my-topic-2", 0, 0).with_max_bytes(1024*1024)];
-    /// let resps = client.fetch_messages(reqs).unwrap();
-    /// for resp in resps {
-    ///   for t in resp.topics() {
-    ///     for p in t.partitions() {
-    ///       match p.data() {
-    ///         Err(ref e) => {
-    ///           println!("partition error: {}:{}: {}", t.topic(), p.partition(), e)
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let reqs = &[FetchPartition::new("my-topic", 0, 0),
+    ///                  FetchPartition::new("my-topic-2", 0, 0).with_max_bytes(1024*1024)];
+    ///     let resps = client.fetch_messages(reqs).await.unwrap();
+    ///     for resp in resps {
+    ///         for t in resp.topics() {
+    ///             for p in t.partitions() {
+    ///                 match p.data() {
+    ///                     Err(ref e) => {
+    ///                     println!("partition error: {}:{}: {}", t.topic(), p.partition(), e)
+    ///                 }
+    ///                     Ok(ref data) => {
+    ///                         println!("topic: {} / partition: {} / latest available message offset: {}",
+    ///                         t.topic(), p.partition(), data.highwatermark_offset());
+    ///                         for msg in data.messages() {
+    ///                             println!("topic: {} / partition: {} / message.offset: {} / message.len: {}",
+    ///                             t.topic(), p.partition(), msg.offset, msg.value.len());
+    ///                         }
+    ///                     }
+    ///                 }
+    ///             }
     ///         }
-    ///         Ok(ref data) => {
-    ///           println!("topic: {} / partition: {} / latest available message offset: {}",
-    ///                    t.topic(), p.partition(), data.highwatermark_offset());
-    ///           for msg in data.messages() {
-    ///             println!("topic: {} / partition: {} / message.offset: {} / message.len: {}",
-    ///                      t.topic(), p.partition(), msg.offset, msg.value.len());
-    ///           }
-    ///         }
-    ///       }
     ///     }
-    ///   }
+    ///     Ok(())
     /// }
     /// ```
     /// See also `kafka_rust::consumer`.
@@ -1093,12 +1131,16 @@ impl KafkaClient {
     /// use std::time::Duration;
     /// use kafka_rust::client::{KafkaClient, ProduceMessage, RequiredAcks};
     ///
-    /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// let req = vec![ProduceMessage::new("my-topic", 0, None, Some("a".as_bytes())),
-    ///                ProduceMessage::new("my-topic-2", 0, None, Some("b".as_bytes()))];
-    /// let resp = client.produce_messages(RequiredAcks::One, Duration::from_millis(100), req);
-    /// println!("{:?}", resp);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let req = vec![ProduceMessage::new("my-topic", 0, None, Some("a".as_bytes())),
+    ///                    ProduceMessage::new("my-topic-2", 0, None, Some("b".as_bytes()))];
+    ///     let resp = client.produce_messages(RequiredAcks::One, Duration::from_millis(100), req).await;
+    ///     println!("{:?}", resp);
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// The return value will contain a vector of topic, partition,
@@ -1127,12 +1169,17 @@ impl KafkaClient {
     /// ```no_run
     /// use kafka_rust::client::{KafkaClient, CommitOffset};
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// client.commit_offsets("my-group",
-    ///     &[CommitOffset::new("my-topic", 0, 100),
-    ///       CommitOffset::new("my-topic", 1, 99)])
-    ///    .unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.commit_offsets("my-group",
+    ///         &[CommitOffset::new("my-topic", 0, 100),
+    ///         CommitOffset::new("my-topic", 1, 99)])
+    ///     .await
+    ///     .unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// In this example, we commit the offset 100 for the topic
@@ -1176,9 +1223,13 @@ impl KafkaClient {
     /// ```no_run
     /// use kafka_rust::client::KafkaClient;
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// client.commit_offset("my-group", "my-topic", 0, 100).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.commit_offset("my-group", "my-topic", 0, 100).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// See also `KafkaClient::commit_offsets`.
@@ -1199,14 +1250,19 @@ impl KafkaClient {
     /// ```no_run
     /// use kafka_rust::client::{KafkaClient, FetchGroupOffset};
     ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
+    /// client.load_metadata_all().await.unwrap();
     ///
     /// let offsets =
     ///      client.fetch_group_offsets("my-group",
     ///             &[FetchGroupOffset::new("my-topic", 0),
     ///               FetchGroupOffset::new("my-topic", 1)])
+    ///             .await
     ///             .unwrap();
+    /// Ok(())
+    /// }
     /// ```
     ///
     /// See also `KafkaClient::fetch_group_topic_offsets`.
@@ -1243,9 +1299,13 @@ impl KafkaClient {
     /// ```no_run
     /// use kafka_rust::client::KafkaClient;
     ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// let offsets = client.fetch_group_topic_offsets("my-group", "my-topic").unwrap();
+    /// client.load_metadata_all().await.unwrap();
+    /// let offsets = client.fetch_group_topic_offsets("my-group", "my-topic").await.unwrap();
+    /// Ok(())
+    /// }
     /// ```
     pub async fn fetch_group_topic_offsets(
         &mut self,
