@@ -404,10 +404,10 @@ impl Consumer {
         Ok(())
     }
 
-    /// A convience method to mark the given message set consumed as a
+    /// A convenience method to mark the given message set consumed as a
     /// whole by the caller. This is equivalent to marking the last
     /// message of the given set as consumed.
-    pub fn consume_messageset<'a>(&mut self, msgs: MessageSet<'a>) -> Result<(), KafkaError> {
+    pub fn consume_messageset(&mut self, msgs: MessageSet) -> Result<(), KafkaError> {
         if !msgs.messages.is_empty() {
             self.consume_message(
                 msgs.topic,
