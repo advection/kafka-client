@@ -1,7 +1,7 @@
 extern crate env_logger;
 
 use failure::Error;
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+use kafka_rust::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 
 /// This program demonstrates consuming messages through a `Consumer`.
 /// This is a convenient client that will fit most use cases.  Note

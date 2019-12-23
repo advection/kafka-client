@@ -1,10 +1,10 @@
 use super::*;
 
-use kafka::error;
-use kafka::producer::Record;
+use kafka_rust::error;
+use kafka_rust::producer::Record;
 
 use env_logger;
-use kafka::error::KafkaErrorKind;
+use kafka_rust::error::KafkaErrorKind;
 
 /// Tests that consuming one message works
 #[test]

@@ -9,11 +9,11 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{env, process};
 
-use kafka::client::{
+use kafka_rust::client::{
     Compression, KafkaClient, RequiredAcks, DEFAULT_CONNECTION_IDLE_TIMEOUT_MILLIS,
 };
-use kafka::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
-use kafka::error::KafkaErrorKind;
+use kafka_rust::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
+use kafka_rust::error::KafkaErrorKind;
 
 /// This is a very simple command line application sending every
 /// non-empty line of standard input to a specified kafka topic; one

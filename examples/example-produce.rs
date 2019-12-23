@@ -3,7 +3,7 @@ extern crate env_logger;
 use std::time::Duration;
 
 use failure::Error;
-use kafka::producer::{Producer, Record, RequiredAcks};
+use kafka_rust::producer::{Producer, Record, RequiredAcks};
 
 /// This program demonstrates sending single message through a
 /// `Producer`.  This is a convenient higher-level client that will

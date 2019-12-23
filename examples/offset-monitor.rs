@@ -10,7 +10,7 @@ use std::process;
 use std::thread;
 use std::time as stdtime;
 
-use kafka::client::{FetchOffset, GroupOffsetStorage, KafkaClient};
+use kafka_rust::client::{FetchOffset, GroupOffsetStorage, KafkaClient};
 
 /// A very simple offset monitor for a particular topic able to show
 /// the lag for a particular consumer group. Dumps the offset/lag of

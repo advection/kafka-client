@@ -9,7 +9,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 use std::{env, process};
 
-use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+use kafka_rust::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 use getopts::Matches;
 
 /// This is a very simple command line application reading from a

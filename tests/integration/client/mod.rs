@@ -3,8 +3,8 @@
 /// * compression
 /// * secure connections
 use super::*;
-use kafka::client::fetch::Response;
-use kafka::client::{
+use kafka_rust::client::fetch::Response;
+use kafka_rust::client::{
     CommitOffset, FetchOffset, FetchPartition, KafkaClient, PartitionOffset, ProduceMessage,
     RequiredAcks,
 };

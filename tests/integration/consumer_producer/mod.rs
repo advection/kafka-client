@@ -3,11 +3,11 @@ pub use super::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use kafka;
-use kafka::client::{FetchOffset, PartitionOffset};
-use kafka::consumer::Consumer;
-use kafka::producer::Record;
-use kafka::producer::{Producer, RequiredAcks};
+use kafka_rust;
+use kafka_rust::client::{FetchOffset, PartitionOffset};
+use kafka_rust::consumer::Consumer;
+use kafka_rust::producer::Record;
+use kafka_rust::producer::{Producer, RequiredAcks};
 
 use rand;
 use rand::RngCore;
@@ -30,13 +30,13 @@ macro_rules! test_consumer_config {
     ( $x:expr ) => {
         $x.with_topic_partitions(TEST_TOPIC_NAME.to_owned(), &TEST_TOPIC_PARTITIONS)
             .with_group(TEST_GROUP_NAME.to_owned())
-            .with_fallback_offset(kafka::consumer::FetchOffset::Latest)
-            .with_offset_storage(kafka::consumer::GroupOffsetStorage::Kafka)
+            .with_fallback_offset(kafka_rust::consumer::FetchOffset::Latest)
+            .with_offset_storage(kafka_rust::consumer::GroupOffsetStorage::Kafka)
     };
 }
 
 /// Return a Consumer builder with some defaults
-pub fn test_consumer_builder() -> kafka::consumer::Builder {
+pub fn test_consumer_builder() -> kafka_rust::consumer::Builder {
     test_consumer_config!(Consumer::from_hosts(vec![
         LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()
     ]))

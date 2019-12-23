@@ -2,7 +2,7 @@
 //!
 //! This module is crate private and not exposed to the public except
 //! through re-exports of individual items from within
-//! `kafka::client`.
+//! `kafka_rust::client`.
 
 use std::collections::HashMap;
 use std::fmt;

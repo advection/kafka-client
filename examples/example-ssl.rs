@@ -16,7 +16,7 @@ mod example {
     use std::io::BufReader;
     use std::process;
 
-    use kafka::client::{FetchOffset, KafkaClient, SecurityConfig};
+    use kafka_rust::client::{FetchOffset, kafka_rustClient, SecurityConfig};
 
     pub async fn main() {
         env_logger::init();

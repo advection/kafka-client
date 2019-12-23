@@ -361,6 +361,9 @@ pub struct ProduceConfirm {
     pub partition_confirms: Vec<ProducePartitionConfirm>,
 }
 
+// this response API is fucked. I think it's far better to emulate the kafka api
+// in that each message attempted gets it's own response information containing
+// topic, partition and offset OR error.
 /// A confirmation of messages sent back by the Kafka broker
 /// to confirm delivery of producer messages for a particular topic.
 #[derive(Debug)]
@@ -382,7 +385,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    /// let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
     /// client.load_metadata_all().unwrap();
     /// ```
     pub fn new(hosts: Vec<String>) -> KafkaClient {
@@ -417,7 +420,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, SecurityConfig};
+    /// use kafka_rust::client::{KafkaClient, SecurityConfig};
     ///
     /// fn main() {
     ///     let (key, cert) = ("client.key".to_string(), "client.crt".to_string());
@@ -498,7 +501,7 @@ impl KafkaClient {
     /// # Example
     ///
     /// ```no_run
-    /// use kafka::client::{Compression, KafkaClient};
+    /// use kafka_rust::client::{Compression, KafkaClient};
     ///
     /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
     /// client.load_metadata_all().unwrap();
@@ -548,7 +551,7 @@ impl KafkaClient {
     ///
     /// ```no_run
     /// use std::time::Duration;
-    /// use kafka::client::{KafkaClient, FetchPartition};
+    /// use kafka_rust::client::{KafkaClient, FetchPartition};
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();
@@ -705,8 +708,8 @@ impl KafkaClient {
     ///
     /// # Examples
     /// ```no_run
-    /// use kafka::client::KafkaClient;
-    /// use kafka::client::metadata::Broker;
+    /// use kafka_rust::client::KafkaClient;
+    /// use kafka_rust::client::metadata::Broker;
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();
@@ -730,7 +733,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    /// let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
     /// client.load_metadata_all().unwrap();
     /// for topic in client.topics().names() {
     ///   println!("topic: {}", topic);
@@ -761,7 +764,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    /// let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
     /// let _ = client.load_metadata(&["my-topic"]).unwrap();
     /// ```
     ///
@@ -817,12 +820,12 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::KafkaClient;
+    /// use kafka_rust::client::KafkaClient;
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();
     /// let topics: Vec<String> = client.topics().names().map(ToOwned::to_owned).collect();
-    /// let offsets = client.fetch_offsets(&topics, kafka::client::FetchOffset::Latest).unwrap();
+    /// let offsets = client.fetch_offsets(&topics, kafka_rust::client::FetchOffset::Latest).unwrap();
     /// ```
     ///
     /// Returns a mapping of topic name to `PartitionOffset`s for each
@@ -923,7 +926,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, FetchOffset};
+    /// use kafka_rust::client::{KafkaClient, FetchOffset};
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();
@@ -972,7 +975,7 @@ impl KafkaClient {
     /// messages with a lower offset.)
     ///
     /// Note: before using this method consider using
-    /// `kafka::consumer::Consumer` instead which provides an easier
+    /// `kafka_rust::consumer::Consumer` instead which provides an easier
     /// to use API for the regular use-case of fetching messesage from
     /// Kafka.
     ///
@@ -986,7 +989,7 @@ impl KafkaClient {
     /// messages.
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, FetchPartition};
+    /// use kafka_rust::client::{KafkaClient, FetchPartition};
     ///
     /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
     /// client.load_metadata_all().unwrap();
@@ -1013,7 +1016,7 @@ impl KafkaClient {
     ///   }
     /// }
     /// ```
-    /// See also `kafka::consumer`.
+    /// See also `kafka_rust::consumer`.
     /// See also `KafkaClient::set_fetch_max_bytes_per_partition`.
     pub async fn fetch_messages<'a, I, J>(&mut self, input: I) -> Result<Vec<fetch::Response>, KafkaError>
     where
@@ -1088,7 +1091,7 @@ impl KafkaClient {
     ///
     /// ```no_run
     /// use std::time::Duration;
-    /// use kafka::client::{KafkaClient, ProduceMessage, RequiredAcks};
+    /// use kafka_rust::client::{KafkaClient, ProduceMessage, RequiredAcks};
     ///
     /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
     /// client.load_metadata_all().unwrap();
@@ -1122,7 +1125,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, CommitOffset};
+    /// use kafka_rust::client::{KafkaClient, CommitOffset};
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();
@@ -1171,7 +1174,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::KafkaClient;
+    /// use kafka_rust::client::KafkaClient;
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();
@@ -1194,7 +1197,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, FetchGroupOffset};
+    /// use kafka_rust::client::{KafkaClient, FetchGroupOffset};
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();
@@ -1238,7 +1241,7 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::KafkaClient;
+    /// use kafka_rust::client::KafkaClient;
     ///
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
     /// client.load_metadata_all().unwrap();

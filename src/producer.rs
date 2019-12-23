@@ -15,7 +15,7 @@
 //! ```no_run
 //! use std::fmt::Write;
 //! use std::time::Duration;
-//! use kafka::producer::{Producer, Record, RequiredAcks};
+//! use kafka_rust::producer::{Producer, Record, RequiredAcks};
 //!
 //! let mut producer =
 //!     Producer::from_hosts(vec!("localhost:9092".to_owned()))
@@ -139,6 +139,7 @@ impl AsBytes for &str {
 /// specifying the target topic and optionally the topic's partition.
 pub struct Record<'a, K, V> {
     /// Key data of this (message) record.
+    // todo: the required fields should probably just be options.
     pub key: K,
 
     /// Value data of this (message) record.
@@ -258,6 +259,7 @@ impl<P: Partitioner> Producer<P> {
         K: AsBytes,
         V: AsBytes,
     {
+        // this is wrong, we shouldn't await here in the case of fire and forget below
         let mut rs = self.send_all(slice::from_ref(rec)).await?;
 
         if self.config.required_acks == 0 {

@@ -9,7 +9,7 @@
 //!
 //! # Example
 //! ```no_run
-//! use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+//! use kafka_rust::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 //!
 //! let mut consumer =
 //!    Consumer::from_hosts(vec!("localhost:9092".to_owned()))

@@ -7,7 +7,7 @@ use std::env;
 use std::io;
 use std::process;
 
-use kafka::client::{FetchOffset, KafkaClient};
+use kafka_rust::client::{FetchOffset, KafkaClient};
 
 /// Dumps available topic metadata to stdout.
 #[tokio::main]

@@ -13,7 +13,7 @@ extern crate env_logger;
 
 #[cfg(feature = "integration_tests")]
 mod integration {
-    use kafka::client::{GroupOffsetStorage, KafkaClient};
+    use kafka_rust::client::{GroupOffsetStorage, KafkaClient};
 
     mod client;
     mod consumer_producer;

@@ -1,6 +1,6 @@
 extern crate env_logger;
 
-use kafka::client::{FetchPartition, KafkaClient};
+use kafka_rust::client::{FetchPartition, KafkaClient};
 
 /// This program demonstrates the low level api for fetching messages.
 /// Please look at examles/consume.rs for an easier to use API.
