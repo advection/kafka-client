@@ -51,9 +51,7 @@ async fn test_consumer_poll() {
 async fn test_consumer_commit_messageset() {
     let _ = env_logger::try_init();
 
-    debug!("start 1");
     let mut consumer = test_consumer().await;
-    debug!("start 2");
 
     // get the offsets at the beginning of the test
     let start_offsets = get_group_offsets(
@@ -157,7 +155,7 @@ async fn test_consumer_commit_messageset_no_consumes() {
 
     // send some messages to the topic
     const NUM_MESSAGES: i64 = 100;
-    send_random_messages(&mut test_producer().await, TEST_TOPIC_NAME, NUM_MESSAGES as u32).await;
+    send_rand   om_messages(&mut test_producer().await, TEST_TOPIC_NAME, NUM_MESSAGES as u32).await;
 
     let mut num_messages = 0;
 

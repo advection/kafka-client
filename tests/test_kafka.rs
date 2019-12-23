@@ -26,12 +26,10 @@ mod integration {
     pub const KAFKA_CONSUMER_OFFSETS_TOPIC_NAME: &str = "__consumer_offsets";
 
     pub(crate) async fn new_ready_kafka_client() -> KafkaClient {
-        debug!("making kafka client");
         let hosts = vec![LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()];
         let mut client = KafkaClient::new(hosts);
         client.set_group_offset_storage(GroupOffsetStorage::Kafka);
         client.load_metadata_all().await.unwrap();
-        debug!("client made");
         client
     }
 }
