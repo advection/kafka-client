@@ -24,4 +24,3 @@ pub mod error;
 pub mod producer;
 mod protocol;
 mod utils;
-mod accumulator;
