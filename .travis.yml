@@ -3,8 +3,7 @@ sudo: false
 cache: cargo
 
 rust:
-  - stable
-  - beta
+  - nightly
 
 services:
   - docker

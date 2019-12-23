@@ -1,10 +1,10 @@
 [package]
-name = "kafka"
+name = "kafka-rust"
 version = "0.8.0"
-authors = ["Yousuf Fauzan", "Petr Novotnik <pnovotnik@googlemail.com>"]
+authors = ["Zack Loebel-Begelman", "Evan Simmons"]
 description = "Rust client for Apache Kafka"
-homepage = "https://github.com/spicavigo/kafka-rust"
-repository = "https://github.com/spicavigo/kafka-rust"
+homepage = "https://github.com/advection/kafka-rust"
+repository = "https://github.com/advection/kafka-rust"
 documentation = "https://docs.rs/kafka/"
 readme = "README.md"
 keywords = ["kafka", "queue"]
