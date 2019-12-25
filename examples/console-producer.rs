@@ -1,19 +1,19 @@
 extern crate env_logger;
 extern crate getopts;
+#[macro_use]
+extern crate error_chain;
 
-use failure::{Error, format_err, bail};
 use std::fs::File;
-use std::io::{stderr, stdin, BufRead, BufReader, Write};
+use std::io::{self, stderr, stdin, BufRead, BufReader, Write};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::time::Duration;
 use std::{env, process};
 
-use kafka_rust::client::{
+use kafka::client::{
     Compression, KafkaClient, RequiredAcks, DEFAULT_CONNECTION_IDLE_TIMEOUT_MILLIS,
 };
-use kafka_rust::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
-use kafka_rust::error::KafkaErrorKind;
+use kafka::producer::{AsBytes, Producer, Record, DEFAULT_ACK_TIMEOUT_MILLIS};
 
 /// This is a very simple command line application sending every
 /// non-empty line of standard input to a specified kafka topic; one
@@ -21,8 +21,7 @@ use kafka_rust::error::KafkaErrorKind;
 ///
 /// Alternatively, messages can be read from an input file and sent do
 /// kafka in batches (the typical use-case).
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
 
     let cfg = match Config::from_cmdline() {
@@ -32,45 +31,45 @@ async fn main() {
             process::exit(1);
         }
     };
-    if let Err(e) = produce(&cfg).await {
+    if let Err(e) = produce(&cfg) {
         println!("{}", e);
         process::exit(1);
     }
 }
 
-async fn produce(cfg: &Config) -> Result<(), Error> {
+fn produce(cfg: &Config) -> Result<()> {
     let mut client = KafkaClient::new(cfg.brokers.clone());
     client.set_client_id("kafka-rust-console-producer".into());
-    client.load_metadata_all().await?;
+    client.load_metadata_all()?;
 
     // ~ verify that the remote brokers do know about the target topic
     if !client.topics().contains(&cfg.topic) {
-        Err(format_err!("No such topic at {:?}: {}", cfg.brokers, cfg.topic))?;
+        bail!(format!("No such topic at {:?}: {}", cfg.brokers, cfg.topic));
     }
     match cfg.input_file {
         None => {
             let stdin = stdin();
             let mut stdin = stdin.lock();
-            produce_impl(&mut stdin, client, &cfg).await
+            produce_impl(&mut stdin, client, &cfg)
         }
         Some(ref file) => {
             let mut r = BufReader::new(File::open(file)?);
-            produce_impl(&mut r, client, &cfg).await
+            produce_impl(&mut r, client, &cfg)
         }
     }
 }
 
-async fn produce_impl(src: &mut impl BufRead, client: KafkaClient, cfg: &Config) -> Result<(), Error> {
+fn produce_impl(src: &mut impl BufRead, client: KafkaClient, cfg: &Config) -> Result<()> {
     let mut producer = Producer::from_client(client)
         .with_ack_timeout(cfg.ack_timeout)
         .with_required_acks(cfg.required_acks)
         .with_compression(cfg.compression)
         .with_connection_idle_timeout(cfg.conn_idle_timeout)
-        .create().await?;
+        .create()?;
     if cfg.batch_size < 2 {
-        produce_impl_nobatch(&mut producer, src, cfg).await
+        produce_impl_nobatch(&mut producer, src, cfg)
     } else {
-        produce_impl_inbatches(&mut producer, src, cfg).await
+        produce_impl_inbatches(&mut producer, src, cfg)
     }
 }
 
@@ -95,11 +94,11 @@ impl DerefMut for Trimmed {
     }
 }
 
-async fn produce_impl_nobatch(
+fn produce_impl_nobatch(
     producer: &mut Producer,
     src: &mut impl BufRead,
     cfg: &Config,
-) -> Result<(), Error> {
+) -> Result<()> {
     let mut stderr = stderr();
     let mut rec = Record::from_value(&cfg.topic, Trimmed(String::new()));
     loop {
@@ -111,7 +110,7 @@ async fn produce_impl_nobatch(
             continue; // ~ skip empty lines
         }
         // ~ directly send to kafka
-        producer.send(&rec).await?;
+        producer.send(&rec)?;
         let _ = write!(stderr, "Sent: {}", *rec.value);
     }
     Ok(())
@@ -120,11 +119,11 @@ async fn produce_impl_nobatch(
 // This implementation wants to be efficient.  It buffers N lines from
 // the source and sends these in batches to Kafka.  Line buffers
 // across batches are re-used for the sake of avoiding allocations.
-async fn produce_impl_inbatches(
+fn produce_impl_inbatches(
     producer: &mut Producer,
     src: &mut impl BufRead,
     cfg: &Config,
-) -> Result<(), Error> {
+) -> Result<()> {
     assert!(cfg.batch_size > 1);
 
     // ~ a buffer of prepared records to be send in a batch to Kafka
@@ -139,7 +138,7 @@ async fn produce_impl_inbatches(
     loop {
         // ~ send out a batch if it's ready
         if next_rec == rec_stash.len() {
-            send_batch(producer, &rec_stash).await?;
+            send_batch(producer, &rec_stash)?;
             next_rec = 0;
         }
         let rec = &mut rec_stash[next_rec];
@@ -155,18 +154,18 @@ async fn produce_impl_inbatches(
     }
     // ~ flush pending messages - if any
     if next_rec > 0 {
-        send_batch(producer, &rec_stash[..next_rec]).await?;
+        send_batch(producer, &rec_stash[..next_rec])?;
     }
     Ok(())
 }
 
-async fn send_batch<'a>(producer: &mut Producer, batch: &[Record<'a, (), Trimmed>]) -> Result<(), Error> {
-    let rs = producer.send_all(batch).await?;
+fn send_batch(producer: &mut Producer, batch: &[Record<(), Trimmed>]) -> Result<()> {
+    let rs = producer.send_all(batch)?;
 
     for r in rs {
         for tpc in r.partition_confirms {
             if let Err(code) = tpc.offset {
-                Err(KafkaErrorKind::Kafka(code))?;
+                bail!(ErrorKind::Kafka(kafka::error::ErrorKind::Kafka(code)));
             }
         }
     }
@@ -174,6 +173,17 @@ async fn send_batch<'a>(producer: &mut Producer, batch: &[Record<'a, (), Trimmed
     Ok(())
 }
 
+// --------------------------------------------------------------------
+
+error_chain! {
+    links {
+        Kafka(kafka::error::Error, kafka::error::ErrorKind);
+    }
+    foreign_links {
+        Io(io::Error);
+        Opt(getopts::Fail);
+    }
+}
 
 // --------------------------------------------------------------------
 
@@ -189,7 +199,7 @@ struct Config {
 }
 
 impl Config {
-    fn from_cmdline() -> Result<Config, Error> {
+    fn from_cmdline() -> Result<Config> {
         let args: Vec<String> = env::args().collect();
         let mut opts = getopts::Options::new();
         opts.optflag("h", "help", "Print this help screen");
@@ -199,7 +209,7 @@ impl Config {
             "Specify kafka brokers (comma separated)",
             "HOSTS",
         );
-        opts.optopt("t", "topic", "Specify target topic", "NAME");
+        opts.optopt("", "topic", "Specify target topic", "NAME");
         opts.optopt("", "input", "Specify input file", "FILE");
         opts.optopt(
             "",
@@ -222,11 +232,10 @@ impl Config {
             "MILLIS",
         );
 
-        let m = opts.parse(&args[1..])?;
-//        {
-//            Ok(m) => m,
-//            Err(e) => bail!(e),
-//        };
+        let m = match opts.parse(&args[1..]) {
+            Ok(m) => m,
+            Err(e) => bail!(e),
+        };
         if m.opt_present("help") {
             let brief = format!("{} [options]", args[0]);
             bail!(opts.usage(&brief));
@@ -251,9 +260,9 @@ impl Config {
             },
             required_acks: match m.opt_str("required-acks") {
                 None => RequiredAcks::One,
-                Some(ref s) if s.eq_ignore_ascii_case("none") || s == "0" => RequiredAcks::None,
-                Some(ref s) if s.eq_ignore_ascii_case("one") || s == "1" => RequiredAcks::One,
-                Some(ref s) if s.eq_ignore_ascii_case("all") || s == "-1" => RequiredAcks::All,
+                Some(ref s) if s.eq_ignore_ascii_case("none") => RequiredAcks::None,
+                Some(ref s) if s.eq_ignore_ascii_case("one") => RequiredAcks::One,
+                Some(ref s) if s.eq_ignore_ascii_case("all") => RequiredAcks::All,
                 Some(s) => bail!(format!("Unknown --required-acks argument: {}", s)),
             },
             batch_size: to_number(m.opt_str("batch-size"), 1)?,
@@ -269,7 +278,7 @@ impl Config {
     }
 }
 
-fn to_number<N: FromStr>(s: Option<String>, _default: N) -> Result<N, Error> {
+fn to_number<N: FromStr>(s: Option<String>, _default: N) -> Result<N> {
     match s {
         None => Ok(_default),
         Some(s) => match s.parse::<N>() {

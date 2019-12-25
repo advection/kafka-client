@@ -1,10 +1,10 @@
 use std::io::{Read, Write};
 
 use crate::codecs::{AsStrings, FromByte, ToByte};
+use crate::error::Result;
 
 use super::{HeaderRequest, HeaderResponse};
 use super::{API_KEY_METADATA, API_VERSION};
-use crate::error::KafkaError;
 
 #[derive(Debug)]
 pub struct MetadataRequest<'a, T: 'a> {
@@ -22,9 +22,11 @@ impl<'a, T: AsRef<str>> MetadataRequest<'a, T> {
 }
 
 impl<'a, T: AsRef<str> + 'a> ToByte for MetadataRequest<'a, T> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
-        self.header.encode(buffer)?;
-        AsStrings(self.topics).encode(buffer)
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
+        try_multi!(
+            self.header.encode(buffer),
+            AsStrings(self.topics).encode(buffer)
+        )
     }
 }
 
@@ -64,10 +66,12 @@ impl FromByte for MetadataResponse {
     type R = MetadataResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
-            self.header.decode(buffer)?;
-            self.brokers.decode(buffer)?;
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.header.decode(buffer),
+            self.brokers.decode(buffer),
             self.topics.decode(buffer)
+        )
     }
 }
 
@@ -75,10 +79,12 @@ impl FromByte for BrokerMetadata {
     type R = BrokerMetadata;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
-            self.node_id.decode(buffer)?;
-            self.host.decode(buffer)?;
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.node_id.decode(buffer),
+            self.host.decode(buffer),
             self.port.decode(buffer)
+        )
     }
 }
 
@@ -86,10 +92,12 @@ impl FromByte for TopicMetadata {
     type R = TopicMetadata;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
-            self.error.decode(buffer)?;
-            self.topic.decode(buffer)?;
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.error.decode(buffer),
+            self.topic.decode(buffer),
             self.partitions.decode(buffer)
+        )
     }
 }
 
@@ -97,11 +105,13 @@ impl FromByte for PartitionMetadata {
     type R = PartitionMetadata;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
-            self.error.decode(buffer)?;
-            self.id.decode(buffer)?;
-            self.leader.decode(buffer)?;
-            self.replicas.decode(buffer)?;
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.error.decode(buffer),
+            self.id.decode(buffer),
+            self.leader.decode(buffer),
+            self.replicas.decode(buffer),
             self.isr.decode(buffer)
+        )
     }
 }

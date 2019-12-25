@@ -1,10 +1,10 @@
 [package]
-name = "kafka-rust"
-version = "0.8.0"
-authors = ["Zack Loebel-Begelman", "Evan Simmons"]
+name = "kafka"
+version = "0.7.0"
+authors = ["Yousuf Fauzan", "Petr Novotnik <pnovotnik@googlemail.com>"]
 description = "Rust client for Apache Kafka"
-homepage = "https://github.com/advection/kafka-rust"
-repository = "https://github.com/advection/kafka-rust"
+homepage = "https://github.com/spicavigo/kafka-rust"
+repository = "https://github.com/spicavigo/kafka-rust"
 documentation = "https://docs.rs/kafka/"
 readme = "README.md"
 keywords = ["kafka", "queue"]
@@ -18,14 +18,13 @@ crc = "1.8.1"
 log = "0.4.8"
 fnv = "1.0.6"
 twox-hash = "1.5.0"
-failure = "0.1.5"
+error-chain = "0.12.1"
 flate2 = { version = "1.0.11", optional = true }
 snap = { version = "0.2.5", optional = true }
 rustls = {version = "0.16.0", optional = true }
 webpki = "0.21.0"
 webpki-roots = "0.17.0"
-tokio = { version = "0.2", features = ["full"] }
-tokio-rustls = { version = "0.12.1", optional = true}
+
 
 [dev-dependencies]
 getopts = "0.2.21"
@@ -38,6 +37,6 @@ rand = "0.7.0"
 default = ["snappy", "gzip", "security"]
 snappy = ["snap"]
 gzip = ["flate2"]
-security = ["rustls", "tokio-rustls"]
+security = ["rustls"]
 nightly = []
 integration_tests = []

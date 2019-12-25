@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use super::{HeaderRequest, HeaderResponse};
 use super::{API_KEY_OFFSET, API_VERSION};
 use crate::codecs::{FromByte, ToByte};
-use crate::error::{KafkaErrorCode, KafkaError};
+use crate::error::{KafkaCode, Result};
 use crate::utils::PartitionOffset;
 use std;
 
@@ -74,25 +74,28 @@ impl PartitionOffsetRequest {
 }
 
 impl<'a> ToByte for OffsetRequest<'a> {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
-            self.header.encode(buffer)?;
-            self.replica.encode(buffer)?;
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.header.encode(buffer),
+            self.replica.encode(buffer),
             self.topic_partitions.encode(buffer)
+        )
     }
 }
 
 impl<'a> ToByte for TopicPartitionOffsetRequest<'a> {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
-        self.topic.encode(buffer)?;
-        self.partitions.encode(buffer)
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<()> {
+        try_multi!(self.topic.encode(buffer), self.partitions.encode(buffer))
     }
 }
 
 impl ToByte for PartitionOffsetRequest {
-    fn encode<T: Write>(&self, buffer: &mut T) -> Result<(), KafkaError> {
-            self.partition.encode(buffer)?;
-            self.time.encode(buffer)?;
+    fn encode<T: Write>(&self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.partition.encode(buffer),
+            self.time.encode(buffer),
             self.max_offsets.encode(buffer)
+        )
     }
 }
 
@@ -118,8 +121,8 @@ pub struct PartitionOffsetResponse {
 }
 
 impl PartitionOffsetResponse {
-    pub fn to_offset(&self) -> std::result::Result<PartitionOffset, KafkaErrorCode> {
-        match KafkaErrorCode::from_protocol(self.error) {
+    pub fn to_offset(&self) -> std::result::Result<PartitionOffset, KafkaCode> {
+        match KafkaCode::from_protocol(self.error) {
             Some(code) => Err(code),
             None => {
                 let offset = match self.offset.first() {
@@ -140,9 +143,11 @@ impl FromByte for OffsetResponse {
     type R = OffsetResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
-            self.header.decode(buffer)?;
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.header.decode(buffer),
             self.topic_partitions.decode(buffer)
+        )
     }
 }
 
@@ -150,9 +155,8 @@ impl FromByte for TopicPartitionOffsetResponse {
     type R = TopicPartitionOffsetResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
-        self.topic.decode(buffer)?;
-        self.partitions.decode(buffer)
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+        try_multi!(self.topic.decode(buffer), self.partitions.decode(buffer))
     }
 }
 
@@ -160,9 +164,11 @@ impl FromByte for PartitionOffsetResponse {
     type R = PartitionOffsetResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
-        self.partition.decode(buffer)?;
-        self.error.decode(buffer)?;
-        self.offset.decode(buffer)
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            self.partition.decode(buffer),
+            self.error.decode(buffer),
+            self.offset.decode(buffer)
+        )
     }
 }

@@ -3,23 +3,22 @@ pub use super::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use kafka_rust;
-use kafka_rust::client::{FetchOffset, PartitionOffset};
-use kafka_rust::consumer::Consumer;
-use kafka_rust::producer::Record;
-use kafka_rust::producer::{Producer, RequiredAcks};
+use kafka;
+use kafka::client::{FetchOffset, PartitionOffset};
+use kafka::consumer::Consumer;
+use kafka::producer::Record;
+use kafka::producer::{Producer, RequiredAcks};
 
 use rand;
 use rand::RngCore;
 
 const RANDOM_MESSAGE_SIZE: usize = 32;
 
-pub async fn test_producer() -> Producer {
+pub fn test_producer() -> Producer {
     Producer::from_hosts(vec![LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()])
         .with_ack_timeout(Duration::from_secs(1))
         .with_required_acks(RequiredAcks::All)
         .create()
-        .await
         .unwrap()
 }
 
@@ -31,29 +30,29 @@ macro_rules! test_consumer_config {
     ( $x:expr ) => {
         $x.with_topic_partitions(TEST_TOPIC_NAME.to_owned(), &TEST_TOPIC_PARTITIONS)
             .with_group(TEST_GROUP_NAME.to_owned())
-            .with_fallback_offset(kafka_rust::consumer::FetchOffset::Latest)
-            .with_offset_storage(kafka_rust::consumer::GroupOffsetStorage::Kafka)
+            .with_fallback_offset(kafka::consumer::FetchOffset::Latest)
+            .with_offset_storage(kafka::consumer::GroupOffsetStorage::Kafka)
     };
 }
 
 /// Return a Consumer builder with some defaults
-pub fn test_consumer_builder() -> kafka_rust::consumer::Builder {
+pub fn test_consumer_builder() -> kafka::consumer::Builder {
     test_consumer_config!(Consumer::from_hosts(vec![
         LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()
     ]))
 }
 
-pub async fn test_consumer() -> Consumer {
-    test_consumer_with_client(new_ready_kafka_client().await).await
+pub fn test_consumer() -> Consumer {
+    test_consumer_with_client(new_ready_kafka_client())
 }
 
 /// Return a ready Kafka consumer with all default settings
-pub async fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
+pub fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
     let topics = [TEST_TOPIC_NAME, TEST_TOPIC_NAME_2];
 
     // Fetch the latest offsets and commit those so that this consumer
     // is always at the latest offset before being used.
-    let latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).await.unwrap();
+    let latest_offsets = client.fetch_offsets(&topics, FetchOffset::Latest).unwrap();
 
     debug!("latest_offsets: {:?}", latest_offsets);
 
@@ -65,15 +64,13 @@ pub async fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
 
             client
                 .commit_offset(TEST_GROUP_NAME, &topic, po.partition, po.offset)
-                .await
                 .unwrap();
         }
     }
 
-    client.load_metadata_all().await.unwrap();
+    client.load_metadata_all().unwrap();
     let partition_offsets: HashSet<PartitionOffset> = client
         .fetch_group_topic_offsets(TEST_GROUP_NAME, TEST_TOPIC_NAME)
-        .await
         .unwrap()
         .into_iter()
         .collect();
@@ -82,13 +79,12 @@ pub async fn test_consumer_with_client(mut client: KafkaClient) -> Consumer {
 
     test_consumer_config!(Consumer::from_client(client))
         .create()
-        .await
         .unwrap()
 }
 
 /// Send `num_messages` randomly-generated messages to the given topic with
 /// the given producer.
-async fn send_random_messages(producer: &mut Producer, topic: &str, num_messages: u32) {
+fn send_random_messages(producer: &mut Producer, topic: &str, num_messages: u32) {
     let mut random_message_buf = [0u8; RANDOM_MESSAGE_SIZE];
     let mut rng = rand::thread_rng();
 
@@ -96,7 +92,6 @@ async fn send_random_messages(producer: &mut Producer, topic: &str, num_messages
         rng.fill_bytes(&mut random_message_buf);
         producer
             .send(&Record::from_value(topic, &random_message_buf[..]))
-            .await
             .unwrap();
     }
 }
@@ -105,7 +100,7 @@ async fn send_random_messages(producer: &mut Producer, topic: &str, num_messages
 /// If the offset is -1 (i.e., there isn't an offset committed for a partition),
 /// use the given optional default value in place of -1. If the default value is
 /// None, -1 is kept.
-pub(crate) async fn get_group_offsets(
+pub(crate) fn get_group_offsets(
     client: &mut KafkaClient,
     group: &str,
     topic: &str,
@@ -113,7 +108,6 @@ pub(crate) async fn get_group_offsets(
 ) -> HashMap<i32, i64> {
     client
         .fetch_group_topic_offsets(group, topic)
-        .await
         .unwrap()
         .iter()
         .map(|po| {

@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use std::io::{self, Write};
+use std::io::Write;
 use std::mem;
 
 use fnv::FnvHasher;
@@ -18,7 +18,7 @@ use crate::compression::gzip;
 #[cfg(feature = "snappy")]
 use crate::compression::snappy::SnappyReader;
 use crate::compression::Compression;
-use crate::error::{KafkaErrorCode, KafkaErrorKind, KafkaError};
+use crate::error::{Error, ErrorKind, KafkaCode, Result};
 
 pub type PartitionHasher = BuildHasherDefault<FnvHasher>;
 
@@ -96,7 +96,7 @@ impl PartitionFetchRequest {
 }
 
 impl<'a, 'b> ToByte for FetchRequest<'a, 'b> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
         self.header.encode(buffer)?;
         self.replica.encode(buffer)?;
         self.max_wait_time.encode(buffer)?;
@@ -111,7 +111,7 @@ impl<'a, 'b> ToByte for FetchRequest<'a, 'b> {
 }
 
 impl TopicPartitionFetchRequest {
-    fn encode<W: Write>(&self, topic: &str, buffer: &mut W) -> Result<(), KafkaError> {
+    fn encode<W: Write>(&self, topic: &str, buffer: &mut W) -> Result<()> {
         topic.encode(buffer)?;
         // encode the hashmap as a vector
         (self.partitions.len() as i32).encode(buffer)?;
@@ -123,10 +123,12 @@ impl TopicPartitionFetchRequest {
 }
 
 impl PartitionFetchRequest {
-    fn encode<T: Write>(&self, partition: i32, buffer: &mut T) -> Result<(), KafkaError> {
-            partition.encode(buffer)?;
-            self.offset.encode(buffer)?;
+    fn encode<T: Write>(&self, partition: i32, buffer: &mut T) -> Result<()> {
+        try_multi!(
+            partition.encode(buffer),
+            self.offset.encode(buffer),
             self.max_bytes.encode(buffer)
+        )
     }
 }
 
@@ -143,15 +145,13 @@ where
 
 impl<'a, 'b, 'c> super::ResponseParser for ResponseParser<'a, 'b, 'c> {
     type T = Response;
-    fn parse(&self, response: Vec<u8>) -> Result<Self::T, KafkaError> {
+    fn parse(&self, response: Vec<u8>) -> Result<Self::T> {
         Response::from_vec(response, self.requests, self.validate_crc)
     }
 }
 
 // ~ helper macro to aid parsing arrays of values (as defined by the
 // Kafka protocol.)
-// zlb: why do this as a macro vs a function call?
-//fn arrayOf
 macro_rules! array_of {
     ($zreader:ident, $parse_elem:expr) => {{
         let n_elems = $zreader.read_array_len()?;
@@ -168,9 +168,6 @@ macro_rules! array_of {
 /// partitions.
 #[derive(Debug)]
 pub struct Response {
-    // yeah I'm surprised to see the data stored just as a Vec of bytes
-    // might make sense to have some genuine objects that the bytes are parsed in to
-
     // used to "own" the data all other references of this struct
     // point to.
     #[allow(dead_code)]
@@ -178,9 +175,6 @@ pub struct Response {
 
     correlation_id: i32,
 
-    // zlb: is this worth keeping? I guess the topics shouldn't really ever change.
-    // they can theoretically be deleted but it seems like it might be sensible to
-    //
     // ~ Static is used here to get around the fact that we don't want
     // Response have to a lifetime parameter as well.  The field is
     // exposed only through an accessor which binds the exposed
@@ -195,7 +189,7 @@ impl Response {
         response: Vec<u8>,
         reqs: Option<&FetchRequest<'_, '_>>,
         validate_crc: bool,
-    ) -> Result<Response, KafkaError> {
+    ) -> Result<Response> {
         let slice = unsafe { mem::transmute(&response[..]) };
         let mut r = ZReader::new(slice);
         let correlation_id = r.read_i32()?;
@@ -237,7 +231,7 @@ impl<'a> Topic<'a> {
         r: &mut ZReader<'a>,
         reqs: Option<&FetchRequest<'_, '_>>,
         validate_crc: bool,
-    ) -> Result<Topic<'a>, KafkaError> {
+    ) -> Result<Topic<'a>> {
         let name = r.read_str()?;
         let preqs = reqs.and_then(|reqs| reqs.get(name));
         let partitions = array_of!(r, Partition::read(r, preqs, validate_crc));
@@ -274,7 +268,7 @@ pub struct Partition<'a> {
     partition: i32,
 
     /// Either an error or the partition data.
-    data: Result<Data<'a>, KafkaErrorCode>,
+    data: Result<Data<'a>>,
 }
 
 impl<'a> Partition<'a> {
@@ -282,31 +276,26 @@ impl<'a> Partition<'a> {
         r: &mut ZReader<'a>,
         preqs: Option<&TopicPartitionFetchRequest>,
         validate_crc: bool,
-    ) -> Result<Partition<'a>, KafkaError> {
+    ) -> Result<Partition<'a>> {
         let partition = r.read_i32()?;
         let proffs = preqs
             .and_then(|preqs| preqs.get(partition))
             .map(|preq| preq.offset)
             .unwrap_or(0);
-        let err = KafkaErrorCode::from_protocol_as_error(r.read_i16()?);
+        let err = Error::from_protocol(r.read_i16()?);
         // we need to parse the rest even if there was an error to
         // consume the input stream (zreader)
         let highwatermark = r.read_i64()?;
         let msgset = MessageSet::from_slice(r.read_bytes()?, proffs, validate_crc)?;
-        let data  = match err {
-            Some(error) => Err(error),
-            None => {
-                Ok(Data {
+        Ok(Partition {
+            partition,
+            data: match err {
+                Some(error) => Err(error),
+                None => Ok(Data {
                     highwatermark_offset: highwatermark,
                     message_set: msgset,
-                })
-            }
-        };
-        Ok(Partition {    // zlb: ok so this is kind of weird, and I'm starting to see some of the comments
-            // even if there is a failure pulling from kafka, we call it good but still encode the failure here
-            // this is ripe for some refactoring, or it has a larger question about how to handle retries from kafka
-            partition,
-            data
+                }),
+            },
         })
     }
 
@@ -317,8 +306,8 @@ impl<'a> Partition<'a> {
     }
 
     /// Retrieves the data payload for this partition.
-    pub fn data(&'a self) -> Result<&'a Data<'a>, &KafkaErrorCode> {
-        self.data.as_ref()
+    pub fn data(&'a self) -> &'a Result<Data<'a>> {
+        &self.data
     }
 }
 
@@ -372,7 +361,7 @@ pub struct Message<'a> {
 
 impl<'a> MessageSet<'a> {
     #[allow(dead_code)]
-    fn from_vec(data: Vec<u8>, req_offset: i64, validate_crc: bool) -> Result<MessageSet<'a>, KafkaError> {
+    fn from_vec(data: Vec<u8>, req_offset: i64, validate_crc: bool) -> Result<MessageSet<'a>> {
         // since we're going to keep the original
         // uncompressed vector around without
         // further modifying it and providing
@@ -389,11 +378,11 @@ impl<'a> MessageSet<'a> {
         })
     }
 
-    fn from_slice(
-        raw_data: &[u8],
+    fn from_slice<'b>(
+        raw_data: &'b [u8],
         req_offset: i64,
         validate_crc: bool,
-    ) -> Result<MessageSet, KafkaError> {
+    ) -> Result<MessageSet<'b>> {
         let mut r = ZReader::new(raw_data);
         let mut msgs = Vec::new();
         while !r.is_empty() {
@@ -401,19 +390,12 @@ impl<'a> MessageSet<'a> {
                 // this is the last messages which might be
                 // incomplete; a valid case to be handled by
                 // consumers
-//                Err(io::ErrorKind::UnexpectedEof) => {
-                //                  break;
-                //            }
+                Err(Error(ErrorKind::UnexpectedEOF, _)) => {
+                    break;
+                }
                 Err(e) => {
-                    match e.kind() {
-                        KafkaErrorKind::IoError(io) => match io.kind() {
-                            //todo: need to make sure this code gets tested
-                            io::ErrorKind::UnexpectedEof => break,
-                            _ => Err(KafkaErrorKind::IoError(io))?
-                        }
-                        _ => Err(e)?
-                    }
-                },
+                    return Err(e);
+                }
                 Ok((offset, pmsg)) => {
                     // handle compression (denoted by the last 3 bits
                     // of the attr field)
@@ -432,19 +414,17 @@ impl<'a> MessageSet<'a> {
                         // XXX handle recursive compression in future
                         #[cfg(feature = "gzip")]
                         c if c == Compression::GZIP as i8 => {
-                            let v = gzip::uncompress(pmsg.value).map_err(|e| KafkaErrorKind::IoError(e))?;
+                            let v = gzip::uncompress(pmsg.value)?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
                         #[cfg(feature = "snappy")]
                         c if c == Compression::SNAPPY as i8 => {
                             use std::io::Read;
                             let mut v = Vec::new();
-                            // todo: zlb seems like we should cache the reader instead of creating it on each invocation
-                            let mut reader = SnappyReader::new(pmsg.value)?;
-                            reader.read_to_end(&mut v).map_err(|e| KafkaErrorKind::IoError(e))?;
+                            SnappyReader::new(pmsg.value)?.read_to_end(&mut v)?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
-                        _ => Err(KafkaErrorKind::UnsupportedCompression)?,
+                        _ => bail!(ErrorKind::UnsupportedCompression),
                     }
                 }
             };
@@ -458,11 +438,10 @@ impl<'a> MessageSet<'a> {
     fn next_message<'b>(
         r: &mut ZReader<'b>,
         validate_crc: bool,
-    ) -> Result<(i64, ProtocolMessage<'b>), KafkaError> {
+    ) -> Result<(i64, ProtocolMessage<'b>)> {
         let offset = r.read_i64()?;
         let msg_data = r.read_bytes()?;
-        let msg = ProtocolMessage::from_slice(msg_data, validate_crc)?;
-        Ok((offset, msg))
+        Ok((offset, ProtocolMessage::from_slice(msg_data, validate_crc)?))
     }
 }
 
@@ -474,21 +453,21 @@ struct ProtocolMessage<'a> {
 }
 
 impl<'a> ProtocolMessage<'a> {
-    /// Parses a raw message from the given byte  slice.  Does _not_
+    /// Parses a raw message from the given byte slice.  Does _not_
     /// handle any compression.
-    fn from_slice(raw_data: &[u8], validate_crc: bool) -> Result<ProtocolMessage, KafkaError> {
+    fn from_slice<'b>(raw_data: &'b [u8], validate_crc: bool) -> Result<ProtocolMessage<'b>> {
         let mut r = ZReader::new(raw_data);
 
         // ~ optionally validate the crc checksum
         let msg_crc = r.read_i32()?;
         if validate_crc && (to_crc(r.rest()) as i32) != msg_crc {
-            Err(KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage))?;
+            bail!(ErrorKind::Kafka(KafkaCode::CorruptMessage));
         }
         // ~ we support parsing only messages with the "zero"
         // magic_byte; this covers kafka 0.8 and 0.9.
         let msg_magic = r.read_i8()?;
         if msg_magic != 0 {
-            Err(KafkaErrorKind::UnsupportedProtocol)?;
+            bail!(ErrorKind::UnsupportedProtocol);
         }
         let msg_attr = r.read_i8()?;
         let msg_key = r.read_bytes()?;
@@ -511,7 +490,7 @@ mod tests {
     use std::str;
 
     use super::{FetchRequest, Message, Response};
-    use crate::error::{KafkaErrorCode, KafkaErrorKind};
+    use crate::error::{Error, ErrorKind, KafkaCode};
 
     static FETCH1_TXT: &str = include_str!("../../test-data/fetch1.txt");
 
@@ -548,10 +527,10 @@ mod tests {
         for t in r.topics() {
             for p in t.partitions() {
                 match p.data() {
-                    Err(_) => {
+                    &Err(_) => {
                         println!("Skipping error partition: {}:{}", t.topic, p.partition);
                     }
-                    Ok(ref data) => {
+                    &Ok(ref data) => {
                         all_msgs.extend(data.messages());
                     }
                 }
@@ -736,17 +715,8 @@ mod tests {
             true,
         ) {
             Ok(_) => panic!("Expected error, but got successful response!"),
-            Err(e) => {
-                match e.kind() {
-                    KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage) => {},
-                    other => {
-                        println!("what we have is a failure to communicate: {:?}", KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage));
-                        assert!(false, "Expected KafkaCode::CorruptMessage error, but got: {:?}", other)
-                    }
-                }
-//                    _ => panic!("Expected KafkaErrorCode::CorruptMessage error, but got: {:?}", e)
-//                    Err(other) => panic!("Expected KafkaErrorCode::CorruptMessage error, but got: {:?}", other)
-            }
+            Err(Error(ErrorKind::Kafka(KafkaCode::CorruptMessage), _)) => {}
+            Err(e) => panic!("Expected KafkaCode::CorruptMessage error, but got: {:?}", e),
         }
     }
 

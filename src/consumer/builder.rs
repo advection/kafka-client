@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::client::{self, FetchOffset, KafkaClient, SecurityConfig};
+use crate::error::{ErrorKind, Result};
 
 use super::assignment;
 use super::config::Config;
 use super::state::State;
 use super::{Consumer, DEFAULT_FALLBACK_OFFSET, DEFAULT_RETRY_MAX_BYTES_LIMIT};
-use crate::error::{KafkaErrorKind, KafkaError};
 
 #[cfg(feature = "security")]
 #[cfg(not(feature = "security"))]
@@ -219,10 +219,10 @@ impl Builder {
     /// Fails with the `NoTopicsAssigned` error, if neither
     /// `with_topic` nor `with_topic_partitions` have been called to
     /// assign at least one topic for consumption.
-    pub async fn create(self) -> Result<Consumer, KafkaError> {
+    pub fn create(self) -> Result<Consumer> {
         // ~ fail immediately if there's no topic to be consumed
         if self.assignments.is_empty() {
-             Err(KafkaErrorKind::NoTopicsAssigned)?;
+            bail!(ErrorKind::NoTopicsAssigned);
         }
         // ~ create the client if necessary
         let (mut client, need_metadata) = match self.client {
@@ -243,7 +243,7 @@ impl Builder {
         }
         // ~ load metadata if necessary
         if need_metadata {
-            client.load_metadata_all().await?;
+            client.load_metadata_all()?;
         }
         // ~ load consumer state
         let config = Config {
@@ -251,7 +251,7 @@ impl Builder {
             fallback_offset: self.fallback_offset,
             retry_max_bytes_limit: self.retry_max_bytes_limit,
         };
-        let state = State::new(&mut client, &config, assignment::from_map(self.assignments)).await?;
+        let state = State::new(&mut client, &config, assignment::from_map(self.assignments))?;
         debug!(
             "initialized: Consumer {{ config: {:?}, state: {:?} }}",
             config, state

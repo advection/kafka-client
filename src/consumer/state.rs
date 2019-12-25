@@ -7,10 +7,12 @@ use std::hash::BuildHasherDefault;
 use fnv::FnvHasher;
 
 use crate::client::{FetchGroupOffset, FetchOffset, KafkaClient};
-use crate::error::{KafkaErrorKind, KafkaErrorCode, KafkaError};
+
+use crate::error::{ErrorKind, KafkaCode, Result};
 
 use super::assignment::{Assignment, AssignmentRef, Assignments};
 use super::config::Config;
+
 pub type PartitionHasher = BuildHasherDefault<FnvHasher>;
 
 // The "fetch state" for a particular topci partition.
@@ -75,11 +77,11 @@ impl<'a> fmt::Debug for State {
 }
 
 impl State {
-    pub async fn new(
+    pub fn new(
         client: &mut KafkaClient,
         config: &Config,
         assignments: Assignments,
-    ) -> Result<State, KafkaError> {
+    ) -> Result<State> {
         let (consumed_offsets, fetch_offsets) = {
             let subscriptions = {
                 let xs = assignments.as_slice();
@@ -91,10 +93,10 @@ impl State {
             };
             let n = subscriptions.iter().map(|s| s.partitions.len()).sum();
             let consumed =
-                load_consumed_offsets(client, &config.group, &assignments, &subscriptions, n).await?;
+                load_consumed_offsets(client, &config.group, &assignments, &subscriptions, n)?;
 
             let fetch_next =
-                load_fetch_states(client, config, &assignments, &subscriptions, &consumed, n).await?;
+                load_fetch_states(client, config, &assignments, &subscriptions, &consumed, n)?;
             (consumed, fetch_next)
         };
         Ok(State {
@@ -142,7 +144,7 @@ struct Subscription<'a> {
 fn determine_partitions<'a>(
     assignment: &'a Assignment,
     metadata: Topics,
-) -> Result<Subscription<'a>, KafkaError> {
+) -> Result<Subscription<'a>> {
     let topic = assignment.topic();
     let req_partitions = assignment.partitions();
     let avail_partitions = match metadata.partitions(topic) {
@@ -152,7 +154,7 @@ fn determine_partitions<'a>(
                 "determine_partitions: no such topic: {} (all metadata: {:?})",
                 topic, metadata
             );
-            return Err(KafkaErrorCode::UnknownTopicOrPartition.into());
+            bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
         }
         Some(tp) => tp,
     };
@@ -175,7 +177,7 @@ fn determine_partitions<'a>(
                          (all metadata: {:?})",
                         topic, p, metadata
                     );
-                    Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?;
+                    bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
                 }
                 Some(_) => ps.push(p),
             };
@@ -190,13 +192,13 @@ fn determine_partitions<'a>(
 
 // Fetches the so-far commited/consumed offsets for the configured
 // group/topic/partitions.
-async fn load_consumed_offsets(
+fn load_consumed_offsets(
     client: &mut KafkaClient,
     group: &str,
     assignments: &Assignments,
     subscriptions: &[Subscription<'_>],
     result_capacity: usize,
-) -> Result<HashMap<TopicPartition, ConsumedOffset, PartitionHasher>, KafkaError> {
+) -> Result<HashMap<TopicPartition, ConsumedOffset, PartitionHasher>> {
     assert!(!subscriptions.is_empty());
     // ~ pre-allocate the right size
     let mut offs = HashMap::with_capacity_and_hasher(result_capacity, PartitionHasher::default());
@@ -213,7 +215,7 @@ async fn load_consumed_offsets(
                 .iter()
                 .map(move |&p| FetchGroupOffset::new(topic, p))
         }),
-    ).await?;
+    )?;
     for (topic, pos) in tpos {
         for po in pos {
             if po.offset != -1 {
@@ -240,20 +242,20 @@ async fn load_consumed_offsets(
 
 /// Fetches the "next fetch" offsets/states based on the specified
 /// subscriptions and the given consumed offsets.
-async fn load_fetch_states(
+fn load_fetch_states(
     client: &mut KafkaClient,
     config: &Config,
     assignments: &Assignments,
     subscriptions: &[Subscription<'_>],
     consumed_offsets: &HashMap<TopicPartition, ConsumedOffset, PartitionHasher>,
     result_capacity: usize,
-) -> Result<HashMap<TopicPartition, FetchState, PartitionHasher>, KafkaError> {
-    async fn load_partition_offsets(
+) -> Result<HashMap<TopicPartition, FetchState, PartitionHasher>> {
+    fn load_partition_offsets(
         client: &mut KafkaClient,
         topics: &[&str],
         offset: FetchOffset,
-    ) -> Result<HashMap<String, HashMap<i32, i64, PartitionHasher>>, KafkaError> {
-        let toffs = client.fetch_offsets(topics, offset).await?;
+    ) -> Result<HashMap<String, HashMap<i32, i64, PartitionHasher>>> {
+        let toffs = client.fetch_offsets(topics, offset)?;
         let mut m = HashMap::with_capacity(toffs.len());
         for (topic, poffs) in toffs {
             let mut pidx =
@@ -275,7 +277,7 @@ async fn load_fetch_states(
     if consumed_offsets.is_empty() {
         // ~ if there are no offsets on behalf of the consumer
         // group - if any - we can directly use the fallback offsets.
-        let offsets = load_partition_offsets(client, &subscription_topics, config.fallback_offset).await?;
+        let offsets = load_partition_offsets(client, &subscription_topics, config.fallback_offset)?;
         for s in subscriptions {
             let topic_ref = assignments
                 .topic_ref(s.assignment.topic())
@@ -286,7 +288,7 @@ async fn load_fetch_states(
                         "load_fetch_states: failed to load fallback offsets for: {}",
                         s.assignment.topic()
                     );
-                    return Err(KafkaErrorCode::UnknownTopicOrPartition.into());
+                    bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
                 }
                 Some(offsets) => {
                     for p in &s.partitions {
@@ -306,8 +308,8 @@ async fn load_fetch_states(
         }
     } else {
         // fetch the earliest and latest available offsets
-        let latest = load_partition_offsets(client, &subscription_topics, FetchOffset::Latest).await?;
-        let earliest = load_partition_offsets(client, &subscription_topics, FetchOffset::Earliest).await?;
+        let latest = load_partition_offsets(client, &subscription_topics, FetchOffset::Latest)?;
+        let earliest = load_partition_offsets(client, &subscription_topics, FetchOffset::Earliest)?;
         // ~ for each subscribed partition if we have a
         // consumed_offset verify it is in the earliest/latest range
         // and use that consumed_offset+1 as the fetch_message.
@@ -344,7 +346,7 @@ async fn load_fetch_states(
                                 s.assignment.topic(),
                                 p
                             );
-                            return Err(KafkaErrorKind::Kafka(KafkaErrorCode::Unknown).into())
+                            bail!(ErrorKind::Kafka(KafkaCode::Unknown));
                         }
                     },
                 };

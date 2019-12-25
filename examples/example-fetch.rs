@@ -1,11 +1,10 @@
 extern crate env_logger;
 
-use kafka_rust::client::{FetchPartition, KafkaClient};
+use kafka::client::{FetchPartition, KafkaClient};
 
 /// This program demonstrates the low level api for fetching messages.
 /// Please look at examles/consume.rs for an easier to use API.
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
 
     let broker = "localhost:9092";
@@ -19,7 +18,7 @@ async fn main() {
     );
 
     let mut client = KafkaClient::new(vec![broker.to_owned()]);
-    if let Err(e) = client.load_metadata_all().await {
+    if let Err(e) = client.load_metadata_all() {
         println!("Failed to load metadata from {}: {}", broker, e);
         return;
     }
@@ -31,7 +30,7 @@ async fn main() {
         return;
     }
 
-    match client.fetch_messages(&[FetchPartition::new(topic, partition, offset)]).await {
+    match client.fetch_messages(&[FetchPartition::new(topic, partition, offset)]) {
         Err(e) => {
             println!("Failed to fetch messages: {}", e);
         }

@@ -1,21 +1,17 @@
 extern crate env_logger;
 extern crate getopts;
-
-#[macro_use] extern crate failure;
-
-use failure::Error;
+#[macro_use]
+extern crate error_chain;
 
 use std::io::{self, Write};
 use std::time::Duration;
 use std::{env, process};
 
-use kafka_rust::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
-use getopts::Matches;
+use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 
 /// This is a very simple command line application reading from a
 /// specific kafka topic and dumping the messages to standard output.
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     env_logger::init();
 
     let cfg = match Config::from_cmdline() {
@@ -25,14 +21,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             process::exit(1);
         }
     };
-    if let Err(e) = process(cfg).await {
+    if let Err(e) = process(cfg) {
         println!("{}", e);
         process::exit(1);
     }
-    Ok(())
 }
 
-async fn process(cfg: Config) -> Result<(), Error> {
+fn process(cfg: Config) -> Result<()> {
     let mut c = {
         let mut cb = Consumer::from_hosts(cfg.brokers)
             .with_group(cfg.group)
@@ -46,7 +41,7 @@ async fn process(cfg: Config) -> Result<(), Error> {
         for topic in cfg.topics {
             cb = cb.with_topic(topic);
         }
-        cb.create().await?
+        cb.create()?
     };
 
     let stdout = io::stdout();
@@ -55,7 +50,7 @@ async fn process(cfg: Config) -> Result<(), Error> {
 
     let do_commit = !cfg.no_commit;
     loop {
-        for ms in c.poll().await?.iter() {
+        for ms in c.poll()?.iter() {
             for m in ms.messages() {
                 // ~ clear the output buffer
                 unsafe { buf.set_len(0) };
@@ -69,11 +64,21 @@ async fn process(cfg: Config) -> Result<(), Error> {
             let _ = c.consume_messageset(ms);
         }
         if do_commit {
-            c.commit_consumed().await?;
+            c.commit_consumed()?;
         }
     }
 }
 
+// --------------------------------------------------------------------
+error_chain! {
+    foreign_links {
+        Kafka(kafka::error::Error);
+        Io(io::Error);
+        Opt(getopts::Fail);
+    }
+}
+
+// --------------------------------------------------------------------
 
 struct Config {
     brokers: Vec<String>,
@@ -84,34 +89,18 @@ struct Config {
     fallback_offset: FetchOffset,
 }
 
-fn required_list(m: &Matches, opt: &str) -> Result<Vec<String>, Error> {
-    let xs: Vec<String> = match m.opt_str(opt) {
-        None => Err(format_err!("Required option --{} missing", opt))?,
-        Some(s) => s
-            .split(',')
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-            .collect(),
-    };
-    if xs.is_empty() {
-        Err(format_err!("Invalid --{} specified!", opt))?;
-    }
-    Ok(xs)
-}
-
-
 impl Config {
-    fn from_cmdline() -> Result<Config, Error> {
+    fn from_cmdline() -> Result<Config> {
         let args: Vec<_> = env::args().collect();
         let mut opts = getopts::Options::new();
         opts.optflag("h", "help", "Print this help screen");
         opts.optopt(
-            "b",
+            "",
             "brokers",
             "Specify kafka brokers (comma separated)",
             "HOSTS",
         );
-        opts.optopt("t", "topics", "Specify topics (comma separated)", "NAMES");
+        opts.optopt("", "topics", "Specify topics (comma separated)", "NAMES");
         opts.optopt("", "group", "Specify the consumer group", "NAME");
         opts.optflag("", "no-commit", "Do not commit group offsets");
         opts.optopt(
@@ -135,8 +124,26 @@ impl Config {
             bail!(opts.usage(&brief));
         }
 
-        let brokers = required_list(&m, "brokers")?;
-        let topics = required_list(&m, "topics")?;
+        macro_rules! required_list {
+            ($name:expr) => {{
+                let opt = $name;
+                let xs: Vec<_> = match m.opt_str(opt) {
+                    None => bail!(format!("Required option --{} missing", opt)),
+                    Some(s) => s
+                        .split(',')
+                        .map(|s| s.trim().to_owned())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                };
+                if xs.is_empty() {
+                    bail!(format!("Invalid --{} specified!", opt));
+                }
+                xs
+            }};
+        };
+
+        let brokers = required_list!("brokers");
+        let topics = required_list!("topics");
 
         let mut offset_storage = GroupOffsetStorage::Zookeeper;
         if let Some(s) = m.opt_str("storage") {

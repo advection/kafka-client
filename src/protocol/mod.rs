@@ -3,9 +3,16 @@ use std::mem;
 use std::time::Duration;
 
 use crate::codecs::{FromByte, ToByte};
-use crate::error::{KafkaErrorCode, KafkaErrorKind, KafkaError};
+use crate::error::{Error, ErrorKind, KafkaCode, Result};
 use crc::crc32;
 
+/// Macro to return Result<()> from multiple statements
+macro_rules! try_multi {
+    ($($expr:expr),*) => ({
+        $(($expr)?;)*
+        Ok(())
+    })
+}
 
 pub mod consumer;
 pub mod metadata;
@@ -46,30 +53,20 @@ const API_VERSION: i16 = 0;
 /// particular response structure.
 pub trait ResponseParser {
     type T;
-    fn parse(&self, response: Vec<u8>) -> Result<Self::T, KafkaError>;
+    fn parse(&self, response: Vec<u8>) -> Result<Self::T>;
 }
 
 // --------------------------------------------------------------------
-//impl Error{
-//    fn from_protocol(n: i16) -> Option<KafkaErrorCode> { // zlb: this used to use Error, not sure why.... changing to KafkaErrorCode
-//        KafkaErrorCode::from_protocol(n).map(|err| err.into())
-//    }
-//}
 
-
-impl KafkaErrorCode {
-    fn from_protocol(n: i16) -> Option<KafkaErrorCode> {
+impl KafkaCode {
+    fn from_protocol(n: i16) -> Option<KafkaCode> {
         if n == 0 {
             return None;
         }
-        if n >= KafkaErrorCode::OffsetOutOfRange as i16 && n <= KafkaErrorCode::UnsupportedVersion as i16 {
+        if n >= KafkaCode::OffsetOutOfRange as i16 && n <= KafkaCode::UnsupportedVersion as i16 {
             return Some(unsafe { mem::transmute(n as i8) });
         }
-        Some(KafkaErrorCode::Unknown)
-    }
-
-    fn from_protocol_as_error(n: i16) -> Option<KafkaErrorCode> {
-        KafkaErrorCode::from_protocol(n)
+        Some(KafkaCode::Unknown)
     }
 }
 
@@ -79,7 +76,7 @@ fn test_kafka_code_from_protocol() {
 
     macro_rules! assert_kafka_code {
         ($kcode:path, $n:expr) => {
-            assert!(if let Some($kcode) = KafkaErrorCode::from_protocol($n) {
+            assert!(if let Some($kcode) = KafkaCode::from_protocol($n) {
                 true
             } else {
                 false
@@ -87,29 +84,36 @@ fn test_kafka_code_from_protocol() {
         };
     };
 
-    assert!(if let None = KafkaErrorCode::from_protocol(0) {
+    assert!(if let None = KafkaCode::from_protocol(0) {
         true
     } else {
         false
     });
     assert_kafka_code!(
-        KafkaErrorCode::OffsetOutOfRange,
-        KafkaErrorCode::OffsetOutOfRange as i16
+        KafkaCode::OffsetOutOfRange,
+        KafkaCode::OffsetOutOfRange as i16
     );
     assert_kafka_code!(
-        KafkaErrorCode::IllegalGeneration,
-        KafkaErrorCode::IllegalGeneration as i16
+        KafkaCode::IllegalGeneration,
+        KafkaCode::IllegalGeneration as i16
     );
     assert_kafka_code!(
-        KafkaErrorCode::UnsupportedVersion,
-        KafkaErrorCode::UnsupportedVersion as i16
+        KafkaCode::UnsupportedVersion,
+        KafkaCode::UnsupportedVersion as i16
     );
-    assert_kafka_code!(KafkaErrorCode::Unknown, KafkaErrorCode::Unknown as i16);
+    assert_kafka_code!(KafkaCode::Unknown, KafkaCode::Unknown as i16);
     // ~ test some un mapped non-zero codes; should all map to "unknown"
-    assert_kafka_code!(KafkaErrorCode::Unknown, i16::MAX);
-    assert_kafka_code!(KafkaErrorCode::Unknown, i16::MIN);
-    assert_kafka_code!(KafkaErrorCode::Unknown, -100);
-    assert_kafka_code!(KafkaErrorCode::Unknown, 100);
+    assert_kafka_code!(KafkaCode::Unknown, i16::MAX);
+    assert_kafka_code!(KafkaCode::Unknown, i16::MIN);
+    assert_kafka_code!(KafkaCode::Unknown, -100);
+    assert_kafka_code!(KafkaCode::Unknown, 100);
+}
+
+// a (sub-) module private method for error
+impl Error {
+    fn from_protocol(n: i16) -> Option<Error> {
+        KafkaCode::from_protocol(n).map(|err| ErrorKind::Kafka(err).into())
+    }
 }
 
 // --------------------------------------------------------------------
@@ -139,11 +143,13 @@ impl<'a> HeaderRequest<'a> {
 }
 
 impl<'a> ToByte for HeaderRequest<'a> {
-    fn encode<W: Write>(&self, buffer: &mut W) -> Result<(), KafkaError> {
-        self.api_key.encode(buffer)?;
-        self.api_version.encode(buffer)?;
-        self.correlation_id.encode(buffer)?;
-        self.client_id.encode(buffer)
+    fn encode<W: Write>(&self, buffer: &mut W) -> Result<()> {
+        try_multi!(
+            self.api_key.encode(buffer),
+            self.api_version.encode(buffer),
+            self.correlation_id.encode(buffer),
+            self.client_id.encode(buffer)
+        )
     }
 }
 
@@ -158,7 +164,7 @@ impl FromByte for HeaderResponse {
     type R = HeaderResponse;
 
     #[allow(unused_must_use)]
-    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<(), KafkaError> {
+    fn decode<T: Read>(&mut self, buffer: &mut T) -> Result<()> {
         self.correlation.decode(buffer)
     }
 }
@@ -173,14 +179,14 @@ pub fn to_crc(data: &[u8]) -> u32 {
 
 /// Safely converts a Duration into the number of milliseconds as a
 /// i32 as often required in the kafka protocol.
-pub fn to_millis_i32(d: Duration) -> Result<i32, KafkaError> {
+pub fn to_millis_i32(d: Duration) -> Result<i32> {
     use std::i32;
     let m = d
         .as_secs()
         .saturating_mul(1_000)
         .saturating_add(u64::from(d.subsec_millis()));
     if m > i32::MAX as u64 {
-        Err(KafkaErrorKind::InvalidDuration)?
+        bail!(ErrorKind::InvalidDuration)
     } else {
         Ok(m as i32)
     }
@@ -192,12 +198,7 @@ fn test_to_millis_i32() {
 
     fn assert_invalid(d: Duration) {
         match to_millis_i32(d) {
-            Err(e) => {
-                match e.kind() {
-                    KafkaErrorKind::InvalidDuration => {},
-                    other => panic!("Expected Err(InvalidDuration) but got {:?}", other),
-                }
-            }
+            Err(Error(ErrorKind::InvalidDuration, _)) => {}
             other => panic!("Expected Err(InvalidDuration) but got {:?}", other),
         }
     }

@@ -7,11 +7,10 @@ use std::env;
 use std::io;
 use std::process;
 
-use kafka_rust::client::{FetchOffset, KafkaClient};
+use kafka::client::{FetchOffset, KafkaClient};
 
 /// Dumps available topic metadata to stdout.
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
 
     let cfg = match Config::from_cmdline() {
@@ -21,7 +20,7 @@ async fn main() {
             process::exit(1);
         }
     };
-    if let Err(e) = dump_metadata(cfg).await {
+    if let Err(e) = dump_metadata(cfg) {
         println!("{}", e);
         process::exit(1);
     }
@@ -41,10 +40,10 @@ impl Default for Offsets {
     }
 }
 
-async fn dump_metadata(cfg: Config) -> Result<(), String> {
+fn dump_metadata(cfg: Config) -> Result<(), String> {
     // ~ establish connection to kafka
     let mut client = KafkaClient::new(cfg.brokers);
-    client.load_metadata_all().await.map_err(|e| e.to_string())?;
+    client.load_metadata_all().map_err(|e| e.to_string())?;
     // ~ determine the list of topics we're supposed to report about
     let topics = if cfg.topics.is_empty() {
         let topics = client.topics();
@@ -62,7 +61,7 @@ async fn dump_metadata(cfg: Config) -> Result<(), String> {
         let mut topic_width = 0;
         let mut m = HashMap::with_capacity(topics.len());
         let mut offsets = client
-            .fetch_offsets(&topics, FetchOffset::Latest).await
+            .fetch_offsets(&topics, FetchOffset::Latest)
             .map_err(|e| e.to_string())?;
         for (topic, offsets) in offsets {
             topic_width = cmp::max(topic_width, topic.len());
@@ -96,7 +95,7 @@ async fn dump_metadata(cfg: Config) -> Result<(), String> {
         }
 
         offsets = client
-            .fetch_offsets(&topics, FetchOffset::Earliest).await
+            .fetch_offsets(&topics, FetchOffset::Earliest)
             .map_err(|e| e.to_string())?;
 
         for (topic, offsets) in offsets {
