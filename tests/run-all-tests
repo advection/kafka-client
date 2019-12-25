@@ -28,8 +28,8 @@ start_docker() {
   docker-compose up -d
 
   # wait for Kafka to be ready and the test topic to be created
-  ./do_until_success "docker-compose logs kafka | grep 'Created topic \"kafka-rust-test\"'"
-  ./do_until_success "docker-compose logs kafka | grep 'Created topic \"kafka-rust-test2\"'"
+  ./do_until_success "docker-compose logs kafka | grep 'Created topic' | grep kafka-rust-test"
+  ./do_until_success "docker-compose logs kafka | grep 'Created topic' | grep kafka-rust-test2"
 }
 
 setup() {
@@ -62,7 +62,6 @@ fi
 
 for ver in $vers; do
   export KAFKA_VER=$ver
-  echo "Running tests with KAFKA_VER=$KAFKA_VER"
 
   setup || {
     teardown
