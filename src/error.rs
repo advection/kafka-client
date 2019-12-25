@@ -2,246 +2,90 @@
 
 use std::io;
 
+use std::fmt;
+
 #[cfg(feature = "security")]
 use rustls::TLSError;
 
-#[cfg(feature = "security")]
-// The various errors this library can produce.
-error_chain! {
-    foreign_links {
-        Io(io::Error) #[doc="Input/Output error while communicating with Kafka"];
+use failure::Fail;
+use crate::failure::{Context, Backtrace};
 
-        TLSError(TLSError) #[cfg(feature = "security")] #[doc="An error as reported by rustls"];
 
-        InvalidSnappy(::snap::Error) #[cfg(feature = "snappy")] #[doc="Failure to encode/decode a snappy compressed response from Kafka"];
-    }
 
-    errors {
-        /// An error as reported by a remote Kafka server
-        Kafka(error_code: KafkaCode) {
-            description("Kafka Error")
-            display("Kafka Error ({:?})", error_code)
-        }
+#[derive(Debug, Fail)]
+pub enum KafkaErrorKind {
+    #[fail(display = "KafkaError: {:?}", _0)]
+     Kafka(KafkaErrorCode),
 
-        /// An error when transmitting a request for a particular topic and partition.
-        /// Contains the topic and partition of the request that failed,
-        /// and the error code as reported by the Kafka server, respectively.
-        TopicPartitionError(topic_name: String, partition_id: i32, error_code: KafkaCode) {
-            description("Error in request for topic and partition")
-            display("Topic Partition Error ({:?}, {:?}, {:?})", topic_name, partition_id, error_code)
-        }
+    /// An error when transmitting a request for a particular topic and partition.
+    /// Contains the topic and partition of the request that failed,
+    /// and the error code as reported by the Kafka server, respectively.
+    #[fail(display = "Topic Partition Error ({:?}, {:?}, {:?})", topic_name, partition_id, error_code)]
+     TopicPartitionError {
+        //description("Error in request for topic and partition")
+        topic_name: String,
+        partition_id: i32,
+        error_code: KafkaErrorCode
+    },
 
-        /// Failure to correctly parse the server response due to the
-        /// server speaking a newer protocol version (than the one this
-        /// library supports)
-        UnsupportedProtocol {
-            description("Unsupported protocol version")
-        }
+    /// Failure to correctly parse the server response due to the
+    /// server speaking a newer protocol version (than the one this
+    /// library supports)
+    #[fail(display = "Unsupported protocol version")]
+    UnsupportedProtocol,
 
-        /// Failure to correctly parse the server response by this library
-        /// due to an unsupported compression format of the data
-        UnsupportedCompression {
-            description("Unsupported compression format")
-        }
+    /// Failure to correctly parse the server response by this library
+    /// due to an unsupported compression format of the data
+    #[fail(display = "Unsupported compression format")]
+    UnsupportedCompression,
 
-        /// Failure to decode a response due to an insufficient number of bytes available
-        UnexpectedEOF {
-            description("Unexpected EOF")
-        }
+    /// Failure to decode or encode a response or request respectively
+    #[fail(display = "Encoding/Decoding Error")]
+    CodecError,
 
-        /// Failure to decode or encode a response or request respectively
-        CodecError {
-            description("Encoding/Decoding Error")
-        }
+    /// Failure to decode a string into a valid utf8 byte sequence
+    #[fail(display = "String decoding error")]
+    StringDecodeError,
 
-        /// Failure to decode a string into a valid utf8 byte sequence
-        StringDecodeError {
-            description("String decoding error")
-        }
+    /// Unable to reach any host
+    #[fail(display = "No host reachable")]
+    NoHostReachable,
 
-        /// Unable to reach any host
-        NoHostReachable {
-            description("No host reachable")
-        }
+    /// Unable to set up `Consumer` due to missing topic assignments
+    #[fail(display = "No topic assigned")]
+    NoTopicsAssigned,
 
-        /// Unable to set up `Consumer` due to missing topic assignments
-        NoTopicsAssigned {
-            description("No topic assigned")
-        }
+    /// An invalid user-provided duration
+    #[fail(display = "Invalid duration")]
+    InvalidDuration,
 
-        /// An invalid user-provided duration
-        InvalidDuration {
-            description("Invalid duration")
-        }
-    }
+    #[fail(display = "{}", _0)]
+    Msg(String),
+
+    #[fail(display = "{}", _0)]
+    IoError(#[fail(cause)] io::Error),
+
+    #[cfg(feature = "security")]
+    #[fail(display = "{}", _0)]
+    TLSError(#[fail(cause)] TLSError),
 }
 
-/// Various errors reported by a remote Kafka server.
-/// See also [Kafka Errors](http://kafka.apache.org/protocol.html)
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum KafkaCode {
-    /// An unexpected server error
-    Unknown = -1,
-    /// The requested offset is outside the range of offsets
-    /// maintained by the server for the given topic/partition
-    OffsetOutOfRange = 1,
-    /// This indicates that a message contents does not match its CRC
-    CorruptMessage = 2,
-    /// This request is for a topic or partition that does not exist
-    /// on this broker.
-    UnknownTopicOrPartition = 3,
-    /// The message has a negative size
-    InvalidMessageSize = 4,
-    /// This error is thrown if we are in the middle of a leadership
-    /// election and there is currently no leader for this partition
-    /// and hence it is unavailable for writes.
-    LeaderNotAvailable = 5,
-    /// This error is thrown if the client attempts to send messages
-    /// to a replica that is not the leader for some partition. It
-    /// indicates that the clients metadata is out of date.
-    NotLeaderForPartition = 6,
-    /// This error is thrown if the request exceeds the user-specified
-    /// time limit in the request.
-    RequestTimedOut = 7,
-    /// This is not a client facing error and is used mostly by tools
-    /// when a broker is not alive.
-    BrokerNotAvailable = 8,
-    /// If replica is expected on a broker, but is not (this can be
-    /// safely ignored).
-    ReplicaNotAvailable = 9,
-    /// The server has a configurable maximum message size to avoid
-    /// unbounded memory allocation. This error is thrown if the
-    /// client attempt to produce a message larger than this maximum.
-    MessageSizeTooLarge = 10,
-    /// Internal error code for broker-to-broker communication.
-    StaleControllerEpoch = 11,
-    /// If you specify a string larger than configured maximum for
-    /// offset metadata
-    OffsetMetadataTooLarge = 12,
-    /// The server disconnected before a response was received.
-    NetworkException = 13,
-    /// The broker returns this error code for an offset fetch request
-    /// if it is still loading offsets (after a leader change for that
-    /// offsets topic partition), or in response to group membership
-    /// requests (such as heartbeats) when group metadata is being
-    /// loaded by the coordinator.
-    GroupLoadInProgress = 14,
-    /// The broker returns this error code for group coordinator
-    /// requests, offset commits, and most group management requests
-    /// if the offsets topic has not yet been created, or if the group
-    /// coordinator is not active.
-    GroupCoordinatorNotAvailable = 15,
-    /// The broker returns this error code if it receives an offset
-    /// fetch or commit request for a group that it is not a
-    /// coordinator for.
-    NotCoordinatorForGroup = 16,
-    /// For a request which attempts to access an invalid topic
-    /// (e.g. one which has an illegal name), or if an attempt is made
-    /// to write to an internal topic (such as the consumer offsets
-    /// topic).
-    InvalidTopic = 17,
-    /// If a message batch in a produce request exceeds the maximum
-    /// configured segment size.
-    RecordListTooLarge = 18,
-    /// Returned from a produce request when the number of in-sync
-    /// replicas is lower than the configured minimum and requiredAcks is
-    /// -1.
-    NotEnoughReplicas = 19,
-    /// Returned from a produce request when the message was written
-    /// to the log, but with fewer in-sync replicas than required.
-    NotEnoughReplicasAfterAppend = 20,
-    /// Returned from a produce request if the requested requiredAcks is
-    /// invalid (anything other than -1, 1, or 0).
-    InvalidRequiredAcks = 21,
-    /// Returned from group membership requests (such as heartbeats) when
-    /// the generation id provided in the request is not the current
-    /// generation.
-    IllegalGeneration = 22,
-    /// Returned in join group when the member provides a protocol type or
-    /// set of protocols which is not compatible with the current group.
-    InconsistentGroupProtocol = 23,
-    /// Returned in join group when the groupId is empty or null.
-    InvalidGroupId = 24,
-    /// Returned from group requests (offset commits/fetches, heartbeats,
-    /// etc) when the memberId is not in the current generation.
-    UnknownMemberId = 25,
-    /// Return in join group when the requested session timeout is outside
-    /// of the allowed range on the broker
-    InvalidSessionTimeout = 26,
-    /// Returned in heartbeat requests when the coordinator has begun
-    /// rebalancing the group. This indicates to the client that it
-    /// should rejoin the group.
-    RebalanceInProgress = 27,
-    /// This error indicates that an offset commit was rejected because of
-    /// oversize metadata.
-    InvalidCommitOffsetSize = 28,
-    /// Returned by the broker when the client is not authorized to access
-    /// the requested topic.
-    TopicAuthorizationFailed = 29,
-    /// Returned by the broker when the client is not authorized to access
-    /// a particular groupId.
-    GroupAuthorizationFailed = 30,
-    /// Returned by the broker when the client is not authorized to use an
-    /// inter-broker or administrative API.
-    ClusterAuthorizationFailed = 31,
-    /// The timestamp of the message is out of acceptable range.
-    InvalidTimestamp = 32,
-    /// The broker does not support the requested SASL mechanism.
-    UnsupportedSaslMechanism = 33,
-    /// Request is not valid given the current SASL state.
-    IllegalSaslState = 34,
-    /// The version of API is not supported.
-    UnsupportedVersion = 35,
-}
-
-#[cfg(feature = "security")]
-impl From<&TLSError> for Error {
-    fn from(err: &TLSError) -> Error {
-        Error::from_kind(ErrorKind::TLSError(err.clone()))
-    }
-}
-
-impl Clone for Error {
-    fn clone(&self) -> Error {
-        match self {
-            Error(ErrorKind::Io(err), _) => ErrorKind::Io(clone_ioe(err)).into(),
-            &Error(ErrorKind::Kafka(x), _) => ErrorKind::Kafka(x).into(),
-            &Error(ErrorKind::TopicPartitionError(ref topic, partition, error_code), _) => {
-                ErrorKind::TopicPartitionError(topic.clone(), partition, error_code).into()
-            }
-            #[cfg(feature = "security")]
-            Error(ErrorKind::TLSError(x), _) => x.into(),
-            Error(ErrorKind::UnsupportedProtocol, _) => ErrorKind::UnsupportedProtocol.into(),
-            Error(ErrorKind::UnsupportedCompression, _) => ErrorKind::UnsupportedCompression.into(),
-            #[cfg(feature = "snappy")]
-            Error(ErrorKind::InvalidSnappy(ref err), _) => from_snap_error_ref(err).into(),
-            Error(ErrorKind::UnexpectedEOF, _) => ErrorKind::UnexpectedEOF.into(),
-            Error(ErrorKind::CodecError, _) => ErrorKind::CodecError.into(),
-            Error(ErrorKind::StringDecodeError, _) => ErrorKind::StringDecodeError.into(),
-            Error(ErrorKind::NoHostReachable, _) => ErrorKind::NoHostReachable.into(),
-            Error(ErrorKind::NoTopicsAssigned, _) => ErrorKind::NoTopicsAssigned.into(),
-            Error(ErrorKind::InvalidDuration, _) => ErrorKind::InvalidDuration.into(),
-            Error(ErrorKind::Msg(ref msg), _) => ErrorKind::Msg(msg.clone()).into(),
-            Error(k, _) => ErrorKind::Msg(k.to_string()).into(), // XXX: Strange to have to add this, what is missing?
-        }
-    }
-}
 
 #[cfg(feature = "snappy")]
-fn from_snap_error_ref(err: &::snap::Error) -> ErrorKind {
+pub fn from_snap_error_ref(err: &::snap::Error) -> io::Error {
     match err {
         &::snap::Error::TooBig { given, max } => {
-            ErrorKind::InvalidSnappy(::snap::Error::TooBig { given, max })
+            io::Error::new(io::ErrorKind::Other, ::snap::Error::TooBig { given, max })
         }
         &::snap::Error::BufferTooSmall { given, min } => {
-            ErrorKind::InvalidSnappy(::snap::Error::BufferTooSmall { given, min })
+            io::Error::new(io::ErrorKind::Other, ::snap::Error::BufferTooSmall { given, min })
         }
-        ::snap::Error::Empty => ErrorKind::InvalidSnappy(::snap::Error::Empty),
-        ::snap::Error::Header => ErrorKind::InvalidSnappy(::snap::Error::Header),
+        ::snap::Error::Empty => io::Error::new(io::ErrorKind::Other,::snap::Error::Empty),
+        ::snap::Error::Header => io::Error::new(io::ErrorKind::Other,::snap::Error::Header),
         &::snap::Error::HeaderMismatch {
             expected_len,
             got_len,
-        } => ErrorKind::InvalidSnappy(::snap::Error::HeaderMismatch {
+        } => io::Error::new(io::ErrorKind::Other,::snap::Error::HeaderMismatch {
             expected_len,
             got_len,
         }),
@@ -249,44 +93,312 @@ fn from_snap_error_ref(err: &::snap::Error) -> ErrorKind {
             len,
             src_len,
             dst_len,
-        } => ErrorKind::InvalidSnappy(::snap::Error::Literal {
+        } => io::Error::new(io::ErrorKind::Other,::snap::Error::Literal {
             len,
             src_len,
             dst_len,
         }),
         &::snap::Error::CopyRead { len, src_len } => {
-            ErrorKind::InvalidSnappy(::snap::Error::CopyRead { len, src_len })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::CopyRead { len, src_len })
         }
         &::snap::Error::CopyWrite { len, dst_len } => {
-            ErrorKind::InvalidSnappy(::snap::Error::CopyWrite { len, dst_len })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::CopyWrite { len, dst_len })
         }
         &::snap::Error::Offset { offset, dst_pos } => {
-            ErrorKind::InvalidSnappy(::snap::Error::Offset { offset, dst_pos })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::Offset { offset, dst_pos })
         }
         &::snap::Error::StreamHeader { byte } => {
-            ErrorKind::InvalidSnappy(::snap::Error::StreamHeader { byte })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::StreamHeader { byte })
         }
         ::snap::Error::StreamHeaderMismatch { ref bytes } => {
-            ErrorKind::InvalidSnappy(::snap::Error::StreamHeaderMismatch {
+            io::Error::new(io::ErrorKind::Other,::snap::Error::StreamHeaderMismatch {
                 bytes: bytes.clone(),
             })
         }
         &::snap::Error::UnsupportedChunkType { byte } => {
-            ErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkType { byte })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::UnsupportedChunkType { byte })
         }
         &::snap::Error::UnsupportedChunkLength { len, header } => {
-            ErrorKind::InvalidSnappy(::snap::Error::UnsupportedChunkLength { len, header })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::UnsupportedChunkLength { len, header })
         }
         &::snap::Error::Checksum { expected, got } => {
-            ErrorKind::InvalidSnappy(::snap::Error::Checksum { expected, got })
+            io::Error::new(io::ErrorKind::Other,::snap::Error::Checksum { expected, got })
         }
     }
 }
+
+#[derive(Debug)]
+pub struct KafkaError {
+    inner: Context<KafkaErrorKind>,
+}
+
+// zlb: seems like it might make sense to make these also error enums
+/// Various errors reported by a remote Kafka server.
+/// See also [Kafka Errors](http://kafka.apache.org/protocol.html)
+#[derive(Fail, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum KafkaErrorCode {
+    #[fail(display = "An unexpected server error")]
+    Unknown = -1,
+
+    /// maintained by the server for the given topic/partition
+    #[fail(display = "The requested offset is outside the range of offsets")]
+    OffsetOutOfRange = 1,
+
+    #[fail(display = "This indicates that a message contents does not match its CRC")]
+    CorruptMessage = 2,
+
+    #[fail(display = "This request is for a topic or partition is not known")]
+    UnknownTopicOrPartition = 3,
+
+    #[fail(display = "The message has a negative size")]
+    InvalidMessageSize = 4,
+
+    /// This error is thrown if we are in the middle of a leadership
+    /// election and there is currently no leader for this partition
+    /// and hence it is unavailable for writes.
+    #[fail(display = "The Leader is not currently available")]
+    LeaderNotAvailable = 5,
+
+    /// to a replica that is not the leader for some partition. It
+    /// indicates that the clients metadata is out of date.
+    #[fail(display = "This error is thrown if the client attempts to send messages")]
+    NotLeaderForPartition = 6,
+
+    /// This error is thrown if the request exceeds the user-specified
+    /// time limit in the request.
+    #[fail(display = "RequestTimedOut")]
+    RequestTimedOut = 7,
+
+    /// when a broker is not alive.
+    #[fail(display = "BrokerNotAvailable")]
+    BrokerNotAvailable = 8,
+
+    /// If replica is expected on a broker, but is not (this can be
+    /// safely ignored).
+    #[fail(display = "ReplicaNotAvailable")]
+    ReplicaNotAvailable = 9,
+
+    /// unbounded memory allocation. This error is thrown if the
+    /// client attempt to produce a message larger than this maximum.
+    #[fail(display = "The server has a configurable maximum message size to avoid")]
+    MessageSizeTooLarge = 10,
+
+    /// Internal error code for broker-to-broker communication.
+    #[fail(display = "StaleControllerEpoch")]
+    StaleControllerEpoch = 11,
+
+    /// offset metadata
+    #[fail(display = "Offset Metadata Too Large")]
+    OffsetMetadataTooLarge = 12,
+
+    /// The server disconnected before a response was received.
+    #[fail(display = "Network Exception")]
+    NetworkException = 13,
+
+    /// The broker returns this error code for an offset fetch request
+    /// if it is still loading offsets (after a leader change for that
+    /// offsets topic partition), or in response to group membership
+    /// requests (such as heartbeats) when group metadata is being
+    /// loaded by the coordinator.
+    #[fail(display = "Group Load In Progress")]
+    GroupLoadInProgress = 14,
+
+    /// The broker returns this error code for group coordinator
+    /// requests, offset commits, and most group management requests
+    /// if the offsets topic has not yet been created, or if the group
+    /// coordinator is not active.
+    #[fail(display = "Group coordinator not available")]
+    GroupCoordinatorNotAvailable = 15,
+
+    /// The broker returns this error code if it receives an offset
+    /// fetch or commit request for a group that it is not a
+    /// coordinator for.
+    #[fail(display = "Not Coordinator for Group")]
+    NotCoordinatorForGroup = 16,
+
+    /// For a request which attempts to access an invalid topic
+    /// (e.g. one which has an illegal name), or if an attempt is made
+    /// to write to an internal topic (such as the consumer offsets
+    /// topic).
+    #[fail(display = "Invalid Topic")]
+    InvalidTopic = 17,
+
+    /// If a message batch in a produce request exceeds the maximum
+    /// configured segment size.
+    #[fail(display = "Record List Too Large")]
+    RecordListTooLarge = 18,
+
+    /// Returned from a produce request when the number of in-sync
+    /// replicas is lower than the configured minimum and requiredAcks is
+    /// -1.
+    #[fail(display = "Not Enough Replicas")]
+    NotEnoughReplicas = 19,
+
+    /// Returned from a produce request when the message was written
+    /// to the log, but with fewer in-sync replicas than required.
+    #[fail(display = "Not Enough Replicas After Append")]
+    NotEnoughReplicasAfterAppend = 20,
+
+    /// Returned from a produce request if the requested requiredAcks is
+    /// invalid (anything other than -1, 1, or 0).
+    #[fail(display = "Invliad Required Acks")]
+    InvalidRequiredAcks = 21,
+
+    /// Returned from group membership requests (such as heartbeats) when
+    /// the generation id provided in the request is not the current
+    /// generation.
+    #[fail(display = "Illegal Generation")]
+    IllegalGeneration = 22,
+
+    /// Returned in join group when the member provides a protocol type or
+    /// set of protocols which is not compatible with the current group.
+    #[fail(display = "Inconsistent Group Protocol")]
+    InconsistentGroupProtocol = 23,
+
+    /// Returned in join group when the groupId is empty or null.
+    #[fail(display = "Invalid Group Id")]
+    InvalidGroupId = 24,
+
+    /// Returned from group requests (offset commits/fetches, heartbeats,
+    /// etc) when the memberId is not in the current generation.
+    #[fail(display = "Unknown Member Id")]
+    UnknownMemberId = 25,
+
+    /// Return in join group when the requested session timeout is outside
+    /// of the allowed range on the broker
+    #[fail(display = "Invalid Session Timeout")]
+    InvalidSessionTimeout = 26,
+
+    /// Returned in heartbeat requests when the coordinator has begun
+    /// rebalancing the group. This indicates to the client that it
+    /// should rejoin the group.
+    #[fail(display = "Rebalance in Progress")]
+    RebalanceInProgress = 27,
+
+    /// This error indicates that an offset commit was rejected because of
+    /// oversize metadata.
+    #[fail(display = "Invalid Commit Offset Size")]
+    InvalidCommitOffsetSize = 28,
+
+    /// Returned by the broker when the client is not authorized to access
+    /// the requested topic.
+    #[fail(display = "Topic Authorization Failed")]
+    TopicAuthorizationFailed = 29,
+
+    /// Returned by the broker when the client is not authorized to access
+    /// a particular groupId.
+    #[fail(display = "Group Authorization Failed")]
+    GroupAuthorizationFailed = 30,
+
+    /// Returned by the broker when the client is not authorized to use an
+    /// inter-broker or administrative API.
+    #[fail(display = "Cluster Authorization failed")]
+    ClusterAuthorizationFailed = 31,
+
+    /// The timestamp of the message is out of acceptable range.
+    #[fail(display = "Invalid Timestamp")]
+    InvalidTimestamp = 32,
+
+    /// The broker does not support the requested SASL mechanism.
+    #[fail(display = "Unsupported Sasl Mechanism")]
+    UnsupportedSaslMechanism = 33,
+
+    /// Request is not valid given the current SASL state.
+    #[fail(display = "Illegal Sasl State")]
+    IllegalSaslState = 34,
+
+    /// The version of API is not supported.
+    #[fail(display = "Unsupported Version")]
+    UnsupportedVersion = 35,
+}
+
+impl From<KafkaErrorCode> for KafkaError{
+    fn from(code: KafkaErrorCode) -> KafkaError {
+        KafkaError { inner: Context::new(KafkaErrorKind::Kafka(code)) }
+    }
+}
+
+#[cfg(feature = "security")]
+impl From<&TLSError> for KafkaErrorKind {
+    fn from(err: &TLSError) -> KafkaErrorKind {
+        KafkaErrorKind::TLSError(err.clone())
+    }
+}
+
+impl From<io::Error> for KafkaError {
+    fn from(err: io::Error) -> KafkaError {
+        KafkaErrorKind::IoError(err).into()
+    }
+}
+
 
 /// Attempt to clone `io::Error`.
 fn clone_ioe(e: &io::Error) -> io::Error {
     match e.raw_os_error() {
         Some(code) => io::Error::from_raw_os_error(code),
         None => io::Error::new(e.kind(), format!("Io error: {}", e)),
+    }
+}
+
+impl Fail for KafkaError {
+    fn name(&self) -> Option<&str> {
+        self.inner.name()
+    }
+    fn cause(&self) -> Option<&dyn Fail> {
+        self.inner.cause()
+    }
+
+    fn backtrace(&self) -> Option<&Backtrace> {
+        self.inner.backtrace()
+    }
+}
+
+impl fmt::Display for KafkaError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self.inner, f)
+    }
+}
+
+
+impl KafkaError {
+    pub fn kind(&self) -> KafkaErrorKind {
+        self.inner.get_context().clone() // zlb: this is probably not ideal
+    }
+}
+
+impl From<KafkaErrorKind> for KafkaError {
+    fn from(kind: KafkaErrorKind) -> KafkaError {
+        KafkaError { inner: Context::new(kind) }
+    }
+}
+
+impl From<Context<KafkaErrorKind>> for KafkaError {
+    fn from(inner: Context<KafkaErrorKind>) -> KafkaError {
+        KafkaError { inner }
+    }
+}
+
+impl Clone for KafkaErrorKind {
+    fn clone(&self) -> KafkaErrorKind {
+        match self {
+            KafkaErrorKind::IoError(ref err) => KafkaErrorKind::IoError(clone_ioe(err)).into(),
+            KafkaErrorKind::Kafka(x) => KafkaErrorKind::Kafka(x.clone()).into(),
+            KafkaErrorKind::TopicPartitionError{ ref topic_name, partition_id, error_code} => {
+                KafkaErrorKind::TopicPartitionError {
+                    topic_name: topic_name.clone(),
+                    partition_id: partition_id.clone(),
+                    error_code: error_code.clone()
+                }.into()
+            }
+            KafkaErrorKind::UnsupportedProtocol => KafkaErrorKind::UnsupportedProtocol.into(),
+            KafkaErrorKind::UnsupportedCompression => KafkaErrorKind::UnsupportedCompression.into(),
+            KafkaErrorKind::CodecError => KafkaErrorKind::CodecError.into(),
+            KafkaErrorKind::StringDecodeError => KafkaErrorKind::StringDecodeError.into(),
+            KafkaErrorKind::NoHostReachable => KafkaErrorKind::NoHostReachable.into(),
+            KafkaErrorKind::NoTopicsAssigned => KafkaErrorKind::NoTopicsAssigned.into(),
+            KafkaErrorKind::InvalidDuration => KafkaErrorKind::InvalidDuration.into(),
+            KafkaErrorKind::Msg(ref msg) => KafkaErrorKind::Msg(msg.clone()).into(),
+            KafkaErrorKind::TLSError(e) => KafkaErrorKind::TLSError(e.clone())
+        }
     }
 }

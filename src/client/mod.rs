@@ -23,10 +23,11 @@ mod network;
 pub use network::SecurityConfig;
 
 use super::codecs::{FromByte, ToByte};
-use super::error::{Error, ErrorKind, KafkaCode, Result};
+use super::error::{KafkaErrorCode, KafkaErrorKind};
 use super::protocol::{self, ResponseParser};
 
 use crate::client_internals::KafkaClientInternals;
+use crate::error::KafkaError;
 
 pub mod metadata;
 mod state;
@@ -360,13 +361,16 @@ pub struct ProduceConfirm {
     pub partition_confirms: Vec<ProducePartitionConfirm>,
 }
 
+// this response API is fucked. I think it's far better to emulate the kafka api
+// in that each message attempted gets it's own response information containing
+// topic, partition and offset OR error.
 /// A confirmation of messages sent back by the Kafka broker
 /// to confirm delivery of producer messages for a particular topic.
 #[derive(Debug)]
 pub struct ProducePartitionConfirm {
     /// The offset assigned to the first message in the message set appended
     /// to this partition, or an error if one occurred.
-    pub offset: std::result::Result<i64, KafkaCode>,
+    pub offset: std::result::Result<i64, KafkaErrorCode>,
 
     /// The partition to which the message(s) were appended.
     pub partition: i32,
@@ -381,8 +385,12 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     pub fn new(hosts: Vec<String>) -> KafkaClient {
         KafkaClient {
@@ -416,9 +424,9 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, SecurityConfig};
-    ///
-    /// fn main() {
+    /// use kafka_rust::client::{KafkaClient, SecurityConfig};
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     let (key, cert) = ("client.key".to_string(), "client.crt".to_string());
     ///
     ///     use rustls;
@@ -430,7 +438,8 @@ impl KafkaClient {
 
     ///     let mut client = KafkaClient::new_secure(vec!["localhost:9092".to_string()], SecurityConfig::new(rustls_config));
     ///
-    ///     client.load_metadata_all().unwrap();
+    ///     client.load_metadata_all().await.unwrap();
+    ///     Ok(())
     /// }
     /// ```
     /// See also `SecurityConfig#with_hostname_verification` to disable hostname verification.
@@ -492,16 +501,21 @@ impl KafkaClient {
         &self.config.client_id
     }
 
-    /// Sets the compression algorithm to use when sending out messages.
+    /// Sets the compression algorithm to use when sending out messages. this should be on the builder
+    /// don't want this exposed
     ///
     /// # Example
     ///
     /// ```no_run
-    /// use kafka::client::{Compression, KafkaClient};
+    /// use kafka_rust::client::{Compression, KafkaClient};
     ///
-    /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// client.set_compression(Compression::NONE);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.set_compression(Compression::NONE);
+    ///     Ok(())
+    /// }
     /// ```
     #[inline]
     pub fn set_compression(&mut self, compression: Compression) {
@@ -520,7 +534,7 @@ impl KafkaClient {
     /// See also `KafkaClient::set_fetch_min_bytes(..)` and
     /// `KafkaClient::set_fetch_max_bytes_per_partition(..)`.
     #[inline]
-    pub fn set_fetch_max_wait_time(&mut self, max_wait_time: Duration) -> Result<()> {
+    pub fn set_fetch_max_wait_time(&mut self, max_wait_time: Duration) -> Result<(), KafkaError> {
         self.config.fetch_max_wait_time = protocol::to_millis_i32(max_wait_time)?;
         Ok(())
     }
@@ -547,13 +561,17 @@ impl KafkaClient {
     ///
     /// ```no_run
     /// use std::time::Duration;
-    /// use kafka::client::{KafkaClient, FetchPartition};
+    /// use kafka_rust::client::{KafkaClient, FetchPartition};
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// client.set_fetch_max_wait_time(Duration::from_millis(100));
-    /// client.set_fetch_min_bytes(64 * 1024);
-    /// let r = client.fetch_messages(&[FetchPartition::new("my-topic", 0, 0)]);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.set_fetch_max_wait_time(Duration::from_millis(100));
+    ///     client.set_fetch_min_bytes(64 * 1024);
+    ///     let r = client.fetch_messages(&[FetchPartition::new("my-topic", 0, 0)]).await;
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// See also `KafkaClient::set_fetch_max_wait_time(..)` and
@@ -704,18 +722,22 @@ impl KafkaClient {
     ///
     /// # Examples
     /// ```no_run
-    /// use kafka::client::KafkaClient;
-    /// use kafka::client::metadata::Broker;
+    /// use kafka_rust::client::KafkaClient;
+    /// use kafka_rust::client::metadata::Broker;
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// for topic in client.topics() {
-    ///   for partition in topic.partitions() {
-    ///     println!("{} #{} => {}", topic.name(), partition.id(),
-    ///              partition.leader()
-    ///                       .map(Broker::host)
-    ///                       .unwrap_or("no-leader!"));
-    ///   }
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     for topic in client.topics() {
+    ///       for partition in topic.partitions() {
+    ///         println!("{} #{} => {}", topic.name(), partition.id(),
+    ///         partition.leader()
+    ///             .map(Broker::host)
+    ///             .unwrap_or("no-leader!"));
+    ///         }
+    ///     }
+    ///     Ok(())
     /// }
     /// ```
     #[inline]
@@ -729,19 +751,23 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// for topic in client.topics().names() {
-    ///   println!("topic: {}", topic);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     for topic in client.topics().names() {
+    ///         println!("topic: {}", topic);
+    ///     }
+    ///     Ok(())
     /// }
     /// ```
     ///
     /// Returns the metadata for all loaded topics underlying this
     /// client.
     #[inline]
-    pub fn load_metadata_all(&mut self) -> Result<()> {
+    pub async fn load_metadata_all(&mut self) -> Result<(), KafkaError> {
         self.reset_metadata();
-        self.load_metadata::<&str>(&[])
+        self.load_metadata::<&str>(&[]).await
     }
 
     /// Reloads metadata for a list of supplied topics.
@@ -760,16 +786,20 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut client = kafka::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// let _ = client.load_metadata(&["my-topic"]).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = kafka_rust::client::KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     let _ = client.load_metadata(&["my-topic"]).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// Returns the metadata for _all_ loaded topics underlying this
     /// client (this might be more topics than specified right to this
     /// method call.)
     #[inline]
-    pub fn load_metadata<T: AsRef<str>>(&mut self, topics: &[T]) -> Result<()> {
-        let resp = self.fetch_metadata(topics)?;
+    pub async fn load_metadata<T: AsRef<str>>(&mut self, topics: &[T]) -> Result<(), KafkaError> {
+        let resp = self.fetch_metadata(topics).await?;
         self.state.update_metadata(resp)
     }
 
@@ -782,21 +812,21 @@ impl KafkaClient {
 
     /// Fetches metadata about the specified topics from all of the
     /// underlying brokers (`self.hosts`).
-    fn fetch_metadata<T: AsRef<str>>(
+    async fn fetch_metadata<T: AsRef<str>>(
         &mut self,
         topics: &[T],
-    ) -> Result<protocol::MetadataResponse> {
+    ) -> Result<protocol::MetadataResponse, KafkaError> {
         let correlation = self.state.next_correlation_id();
         let now = Instant::now();
 
         for host in &self.config.hosts {
             debug!("fetch_metadata: requesting metadata from {}", host);
-            match self.conn_pool.get_conn(host, now) {
+            match self.conn_pool.get_conn(host, now).await {
                 Ok(conn) => {
                     let req =
                         protocol::MetadataRequest::new(correlation, &self.config.client_id, topics);
-                    match __send_request(conn, req) {
-                        Ok(_) => return __get_response::<protocol::MetadataResponse>(conn),
+                    match __send_request(conn, req).await {
+                        Ok(_) => return __get_response::<protocol::MetadataResponse>(conn).await,
                         Err(e) => debug!(
                             "fetch_metadata: failed to request metadata from {}: {}",
                             host, e
@@ -808,7 +838,7 @@ impl KafkaClient {
                 }
             }
         }
-        bail!(ErrorKind::NoHostReachable)
+        Err(KafkaErrorKind::NoHostReachable)?
     }
 
     /// Fetch offsets for a list of topics
@@ -816,21 +846,25 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::KafkaClient;
+    /// use kafka_rust::client::KafkaClient;
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// let topics: Vec<String> = client.topics().names().map(ToOwned::to_owned).collect();
-    /// let offsets = client.fetch_offsets(&topics, kafka::client::FetchOffset::Latest).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let topics: Vec<String> = client.topics().names().map(ToOwned::to_owned).collect();
+    ///     let offsets = client.fetch_offsets(&topics, kafka_rust::client::FetchOffset::Latest).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// Returns a mapping of topic name to `PartitionOffset`s for each
     /// currently available partition of the corresponding topic.
-    pub fn fetch_offsets<T: AsRef<str>>(
+    pub async fn fetch_offsets<T: AsRef<str>>(
         &mut self,
         topics: &[T],
         offset: FetchOffset,
-    ) -> Result<HashMap<String, Vec<PartitionOffset>>> {
+    ) -> Result<HashMap<String, Vec<PartitionOffset>>, KafkaError> {
         let time = offset.to_kafka_value();
         let n_topics = topics.len();
 
@@ -864,7 +898,7 @@ impl KafkaClient {
                 &host,
                 now,
                 req,
-            )?;
+            ).await?;
             for tp in resp.topic_partitions {
                 let mut entry = res.entry(tp.topic);
                 let mut new_resp_offsets = None;
@@ -894,9 +928,9 @@ impl KafkaClient {
                         resp_offsets.push(partition_offset);
                     }
                 }
-                if let Some((partition, code)) = err {
-                    let topic = KafkaClient::get_key_from_entry(entry);
-                    bail!(ErrorKind::TopicPartitionError(topic, partition, code));
+                if let Some((partition_id, error_code)) = err {
+                    let topic_name = KafkaClient::get_key_from_entry(entry);
+                    return Err(KafkaErrorKind::TopicPartitionError{ topic_name, partition_id, error_code }.into());
                 }
                 if let hash_map::Entry::Vacant(e) = entry {
                     // unwrap is ok because if it is Vacant, it would have
@@ -922,26 +956,30 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, FetchOffset};
+    /// use kafka_rust::client::{KafkaClient, FetchOffset};
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// let offsets = client.fetch_topic_offsets("my-topic", FetchOffset::Latest).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let offsets = client.fetch_topic_offsets("my-topic", FetchOffset::Latest).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// Returns a vector of the offset data for each available partition.
     /// See also `KafkaClient::fetch_offsets`.
-    pub fn fetch_topic_offsets<T: AsRef<str>>(
+    pub async fn fetch_topic_offsets<T: AsRef<str>>(
         &mut self,
         topic: T,
         offset: FetchOffset,
-    ) -> Result<Vec<PartitionOffset>> {
+    ) -> Result<Vec<PartitionOffset>, KafkaError> {
         let topic = topic.as_ref();
 
-        let mut m = self.fetch_offsets(&[topic], offset)?;
+        let mut m = self.fetch_offsets(&[topic], offset).await?;
         let offs = m.remove(topic).unwrap_or_default();
         if offs.is_empty() {
-            bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition))
+            return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into() )
         } else {
             Ok(offs)
         }
@@ -971,7 +1009,7 @@ impl KafkaClient {
     /// messages with a lower offset.)
     ///
     /// Note: before using this method consider using
-    /// `kafka::consumer::Consumer` instead which provides an easier
+    /// `kafka_rust::consumer::Consumer` instead which provides an easier
     /// to use API for the regular use-case of fetching messesage from
     /// Kafka.
     ///
@@ -985,36 +1023,40 @@ impl KafkaClient {
     /// messages.
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, FetchPartition};
+    /// use kafka_rust::client::{KafkaClient, FetchPartition};
     ///
-    /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// let reqs = &[FetchPartition::new("my-topic", 0, 0),
-    ///              FetchPartition::new("my-topic-2", 0, 0).with_max_bytes(1024*1024)];
-    /// let resps = client.fetch_messages(reqs).unwrap();
-    /// for resp in resps {
-    ///   for t in resp.topics() {
-    ///     for p in t.partitions() {
-    ///       match p.data() {
-    ///         &Err(ref e) => {
-    ///           println!("partition error: {}:{}: {}", t.topic(), p.partition(), e)
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let reqs = &[FetchPartition::new("my-topic", 0, 0),
+    ///                  FetchPartition::new("my-topic-2", 0, 0).with_max_bytes(1024*1024)];
+    ///     let resps = client.fetch_messages(reqs).await.unwrap();
+    ///     for resp in resps {
+    ///         for t in resp.topics() {
+    ///             for p in t.partitions() {
+    ///                 match p.data() {
+    ///                     Err(ref e) => {
+    ///                     println!("partition error: {}:{}: {}", t.topic(), p.partition(), e)
+    ///                 }
+    ///                     Ok(ref data) => {
+    ///                         println!("topic: {} / partition: {} / latest available message offset: {}",
+    ///                         t.topic(), p.partition(), data.highwatermark_offset());
+    ///                         for msg in data.messages() {
+    ///                             println!("topic: {} / partition: {} / message.offset: {} / message.len: {}",
+    ///                             t.topic(), p.partition(), msg.offset, msg.value.len());
+    ///                         }
+    ///                     }
+    ///                 }
+    ///             }
     ///         }
-    ///         &Ok(ref data) => {
-    ///           println!("topic: {} / partition: {} / latest available message offset: {}",
-    ///                    t.topic(), p.partition(), data.highwatermark_offset());
-    ///           for msg in data.messages() {
-    ///             println!("topic: {} / partition: {} / message.offset: {} / message.len: {}",
-    ///                      t.topic(), p.partition(), msg.offset, msg.value.len());
-    ///           }
-    ///         }
-    ///       }
     ///     }
-    ///   }
+    ///     Ok(())
     /// }
     /// ```
-    /// See also `kafka::consumer`.
+    /// See also `kafka_rust::consumer`.
     /// See also `KafkaClient::set_fetch_max_bytes_per_partition`.
-    pub fn fetch_messages<'a, I, J>(&mut self, input: I) -> Result<Vec<fetch::Response>>
+    pub async fn fetch_messages<'a, I, J>(&mut self, input: I) -> Result<Vec<fetch::Response>, KafkaError>
     where
         J: AsRef<FetchPartition<'a>>,
         I: IntoIterator<Item = J>,
@@ -1051,17 +1093,17 @@ impl KafkaClient {
             }
         }
 
-        __fetch_messages(&mut self.conn_pool, config, reqs)
+        __fetch_messages(&mut self.conn_pool, config, reqs).await
     }
 
     /// Fetch messages from a single kafka partition.
     ///
     /// See `KafkaClient::fetch_messages`.
-    pub fn fetch_messages_for_partition<'a>(
+    pub async fn fetch_messages_for_partition<'a>(
         &mut self,
         req: &FetchPartition<'a>,
-    ) -> Result<Vec<fetch::Response>> {
-        self.fetch_messages(&[req])
+    ) -> Result<Vec<fetch::Response>, KafkaError> {
+        self.fetch_messages(&[req]).await
     }
 
     /// Send a message to Kafka
@@ -1087,14 +1129,18 @@ impl KafkaClient {
     ///
     /// ```no_run
     /// use std::time::Duration;
-    /// use kafka::client::{KafkaClient, ProduceMessage, RequiredAcks};
+    /// use kafka_rust::client::{KafkaClient, ProduceMessage, RequiredAcks};
     ///
-    /// let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
-    /// client.load_metadata_all().unwrap();
-    /// let req = vec![ProduceMessage::new("my-topic", 0, None, Some("a".as_bytes())),
-    ///                ProduceMessage::new("my-topic-2", 0, None, Some("b".as_bytes()))];
-    /// let resp = client.produce_messages(RequiredAcks::One, Duration::from_millis(100), req);
-    /// println!("{:?}", resp);
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!("localhost:9092".to_owned()));
+    ///     client.load_metadata_all().await.unwrap();
+    ///     let req = vec![ProduceMessage::new("my-topic", 0, None, Some("a".as_bytes())),
+    ///                    ProduceMessage::new("my-topic-2", 0, None, Some("b".as_bytes()))];
+    ///     let resp = client.produce_messages(RequiredAcks::One, Duration::from_millis(100), req).await;
+    ///     println!("{:?}", resp);
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// The return value will contain a vector of topic, partition,
@@ -1103,17 +1149,17 @@ impl KafkaClient {
     // XXX rework signaling an error; note that we need to either return the
     // messages which kafka failed to accept or otherwise tell the client about them
 
-    pub fn produce_messages<'a, 'b, I, J>(
+    pub async fn produce_messages<'a, 'b, I, J>(
         &mut self,
         acks: RequiredAcks,
         ack_timeout: Duration,
         messages: I,
-    ) -> Result<Vec<ProduceConfirm>>
+    ) -> Result<Vec<ProduceConfirm>, KafkaError>
     where
         J: AsRef<ProduceMessage<'a, 'b>>,
         I: IntoIterator<Item = J>,
     {
-        self.internal_produce_messages(acks as i16, protocol::to_millis_i32(ack_timeout)?, messages)
+        self.internal_produce_messages(acks as i16, protocol::to_millis_i32(ack_timeout)?, messages).await
     }
 
     /// Commit offset for a topic partitions on behalf of a consumer group.
@@ -1121,14 +1167,19 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, CommitOffset};
+    /// use kafka_rust::client::{KafkaClient, CommitOffset};
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// client.commit_offsets("my-group",
-    ///     &[CommitOffset::new("my-topic", 0, 100),
-    ///       CommitOffset::new("my-topic", 1, 99)])
-    ///    .unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.commit_offsets("my-group",
+    ///         &[CommitOffset::new("my-topic", 0, 100),
+    ///         CommitOffset::new("my-topic", 1, 99)])
+    ///     .await
+    ///     .unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// In this example, we commit the offset 100 for the topic
@@ -1137,7 +1188,7 @@ impl KafkaClient {
     /// retrieved using `fetch_group_offsets` even from another
     /// process or at much later point in time to resume comusing the
     /// topic partitions as of these offsets.
-    pub fn commit_offsets<'a, J, I>(&mut self, group: &str, offsets: I) -> Result<()>
+    pub async fn commit_offsets<'a, J, I>(&mut self, group: &str, offsets: I) -> Result<(), KafkaError>
     where
         J: AsRef<CommitOffset<'a>>,
         I: IntoIterator<Item = J>,
@@ -1153,14 +1204,14 @@ impl KafkaClient {
             if self.state.contains_topic_partition(o.topic, o.partition) {
                 req.add(o.topic, o.partition, o.offset, "");
             } else {
-                bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
+                Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?
             }
         }
         if req.topic_partitions.is_empty() {
             debug!("commit_offsets: no offsets provided");
             Ok(())
         } else {
-            __commit_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)
+            __commit_offsets(req, &mut self.state, &mut self.conn_pool, &self.config).await
         }
     }
 
@@ -1170,22 +1221,26 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::KafkaClient;
+    /// use kafka_rust::client::KafkaClient;
     ///
-    /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// client.commit_offset("my-group", "my-topic", 0, 100).unwrap();
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
+    ///     client.load_metadata_all().await.unwrap();
+    ///     client.commit_offset("my-group", "my-topic", 0, 100).await.unwrap();
+    ///     Ok(())
+    /// }
     /// ```
     ///
     /// See also `KafkaClient::commit_offsets`.
-    pub fn commit_offset(
+    pub async fn commit_offset(
         &mut self,
         group: &str,
         topic: &str,
         partition: i32,
         offset: i64,
-    ) -> Result<()> {
-        self.commit_offsets(group, &[CommitOffset::new(topic, partition, offset)])
+    ) -> Result<(), KafkaError> {
+        self.commit_offsets(group, &[CommitOffset::new(topic, partition, offset)]).await
     }
 
     /// Fetch offset for a specified list of topic partitions of a consumer group
@@ -1193,24 +1248,29 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::{KafkaClient, FetchGroupOffset};
+    /// use kafka_rust::client::{KafkaClient, FetchGroupOffset};
     ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
+    /// client.load_metadata_all().await.unwrap();
     ///
     /// let offsets =
     ///      client.fetch_group_offsets("my-group",
     ///             &[FetchGroupOffset::new("my-topic", 0),
     ///               FetchGroupOffset::new("my-topic", 1)])
+    ///             .await
     ///             .unwrap();
+    /// Ok(())
+    /// }
     /// ```
     ///
     /// See also `KafkaClient::fetch_group_topic_offsets`.
-    pub fn fetch_group_offsets<'a, J, I>(
+    pub async fn fetch_group_offsets<'a, J, I>(
         &mut self,
         group: &str,
         partitions: I,
-    ) -> Result<HashMap<String, Vec<PartitionOffset>>>
+    ) -> Result<HashMap<String, Vec<PartitionOffset>>, KafkaError>
     where
         J: AsRef<FetchGroupOffset<'a>>,
         I: IntoIterator<Item = J>,
@@ -1226,10 +1286,10 @@ impl KafkaClient {
             if self.state.contains_topic_partition(p.topic, p.partition) {
                 req.add(p.topic, p.partition);
             } else {
-                bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition));
+                return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into() );
             }
         }
-        __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)
+        __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config).await
     }
 
     /// Fetch offset for all partitions of a particular topic of a consumer group
@@ -1237,17 +1297,21 @@ impl KafkaClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use kafka::client::KafkaClient;
+    /// use kafka_rust::client::KafkaClient;
     ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = KafkaClient::new(vec!["localhost:9092".to_owned()]);
-    /// client.load_metadata_all().unwrap();
-    /// let offsets = client.fetch_group_topic_offsets("my-group", "my-topic").unwrap();
+    /// client.load_metadata_all().await.unwrap();
+    /// let offsets = client.fetch_group_topic_offsets("my-group", "my-topic").await.unwrap();
+    /// Ok(())
+    /// }
     /// ```
-    pub fn fetch_group_topic_offsets(
+    pub async fn fetch_group_topic_offsets(
         &mut self,
         group: &str,
         topic: &str,
-    ) -> Result<Vec<PartitionOffset>> {
+    ) -> Result<Vec<PartitionOffset>, KafkaError> {
         let mut req = protocol::OffsetFetchRequest::new(
             group,
             self.config.offset_fetch_version,
@@ -1256,7 +1320,7 @@ impl KafkaClient {
         );
 
         match self.state.partitions_for(topic) {
-            None => bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
+            None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
             Some(tp) => {
                 for (id, _) in tp {
                     req.add(topic, id);
@@ -1264,21 +1328,19 @@ impl KafkaClient {
             }
         }
 
-        Ok(
-            __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config)?
-                .remove(topic)
-                .unwrap_or_else(Vec::new),
-        )
+
+        __fetch_group_offsets(req, &mut self.state, &mut self.conn_pool, &self.config).await
+            .map(|mut x| x.remove(topic).unwrap_or_else(Vec::new))
     }
 }
 
-impl KafkaClientInternals for KafkaClient {
-    fn internal_produce_messages<'a, 'b, I, J>(
+impl KafkaClient {
+    pub async fn internal_produce_messages<'a, 'b, I, J>(
         &mut self,
         required_acks: i16,
         ack_timeout: i32,
         messages: I,
-    ) -> Result<Vec<ProduceConfirm>>
+    ) -> Result<Vec<ProduceConfirm>, KafkaError>
     where
         J: AsRef<ProduceMessage<'a, 'b>>,
         I: IntoIterator<Item = J>,
@@ -1292,7 +1354,7 @@ impl KafkaClientInternals for KafkaClient {
         for msg in messages {
             let msg = msg.as_ref();
             match state.find_broker(msg.topic, msg.partition) {
-                None => bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
+                None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
                 Some(broker) => reqs
                     .entry(broker)
                     .or_insert_with(|| {
@@ -1307,17 +1369,17 @@ impl KafkaClientInternals for KafkaClient {
                     .add(msg.topic, msg.partition, msg.key, msg.value),
             }
         }
-        __produce_messages(&mut self.conn_pool, reqs, required_acks == 0)
+        __produce_messages(&mut self.conn_pool, reqs, required_acks == 0).await
     }
 }
 
-fn __get_group_coordinator<'a>(
+async fn __get_group_coordinator<'a>(
     group: &str,
     state: &'a mut state::ClientState,
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
     now: Instant,
-) -> Result<&'a str> {
+) -> Result<&'a str, KafkaError> {
     if let Some(host) = state.group_coordinator(group) {
         // ~ decouple the lifetimes to make borrowck happy;
         // this is actually safe since we're immediatelly
@@ -1333,22 +1395,24 @@ fn __get_group_coordinator<'a>(
         // been called yet; if there are no connections available we can
         // try connecting to the user specified bootstrap server similar
         // to the way `load_metadata` works.
-        let conn = conn_pool.get_conn_any(now).expect("available connection");
+        let conn = conn_pool.get_conn_any(now).await.expect("available connection");
         debug!(
             "get_group_coordinator: asking for coordinator of '{}' on: {:?}",
             group, conn
         );
-        let r = __send_receive_conn::<_, protocol::GroupCoordinatorResponse>(conn, &req)?;
+        let r = __send_receive_conn::<_, protocol::GroupCoordinatorResponse>(conn, &req).await?;
         let retry_code;
         match r.into_result() {
             Ok(r) => {
                 return Ok(state.set_group_coordinator(group, &r));
             }
-            Err(Error(ErrorKind::Kafka(e @ KafkaCode::GroupCoordinatorNotAvailable), _)) => {
-                retry_code = e;
-            }
             Err(e) => {
-                return Err(e);
+                match e.kind() {
+                    KafkaErrorKind::Kafka(c @ KafkaErrorCode::GroupCoordinatorNotAvailable) => {
+                        retry_code = c;
+                    }
+                    _ => { return Err(e) }
+                }
             }
         }
         if attempt < config.retry_max_attempts {
@@ -1359,28 +1423,28 @@ fn __get_group_coordinator<'a>(
             attempt += 1;
             __retry_sleep(config);
         } else {
-            bail!(ErrorKind::Kafka(retry_code));
+            Err(KafkaErrorKind::Kafka(retry_code))?;
         }
     }
 }
 
-fn __commit_offsets(
-    req: protocol::OffsetCommitRequest,
+async fn __commit_offsets<'a, 'b>(
+    req: protocol::OffsetCommitRequest<'a, 'b>,
     state: &mut state::ClientState,
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
-) -> Result<()> {
+) -> Result<(), KafkaError> {
     let mut attempt = 1;
     loop {
         let now = Instant::now();
 
         let tps = {
-            let host = __get_group_coordinator(req.group, state, conn_pool, config, now)?;
+            let host = __get_group_coordinator(req.group, state, conn_pool, config, now).await?;
             debug!(
                 "__commit_offsets: sending offset commit request '{:?}' to: {}",
                 req, host
             );
-            __send_receive::<_, protocol::OffsetCommitResponse>(conn_pool, host, now, &req)?
+            __send_receive::<_, protocol::OffsetCommitResponse>(conn_pool, host, now, &req).await?
                 .topic_partitions
         };
 
@@ -1390,11 +1454,11 @@ fn __commit_offsets(
             for p in tp.partitions {
                 match p.to_error() {
                     None => {}
-                    Some(e @ KafkaCode::GroupLoadInProgress) => {
+                    Some(e @ KafkaErrorCode::GroupLoadInProgress) => {
                         retry_code = Some(e);
                         break 'rproc;
                     }
-                    Some(e @ KafkaCode::NotCoordinatorForGroup) => {
+                    Some(e @ KafkaErrorCode::NotCoordinatorForGroup) => {
                         debug!(
                             "commit_offsets: resetting group coordinator for '{}'",
                             req.group
@@ -1405,7 +1469,7 @@ fn __commit_offsets(
                     }
                     Some(code) => {
                         // ~ immediately abort with the error
-                        bail!(ErrorKind::Kafka(code));
+                        Err(KafkaErrorKind::Kafka(code))?;
                     }
                 }
             }
@@ -1428,23 +1492,23 @@ fn __commit_offsets(
     }
 }
 
-fn __fetch_group_offsets(
-    req: protocol::OffsetFetchRequest,
+async fn __fetch_group_offsets<'a, 'b, 'c>(
+    req: protocol::OffsetFetchRequest<'a, 'b, 'c>,
     state: &mut state::ClientState,
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
-) -> Result<HashMap<String, Vec<PartitionOffset>>> {
+) -> Result<HashMap<String, Vec<PartitionOffset>>, KafkaError> {
     let mut attempt = 1;
     loop {
         let now = Instant::now();
 
         let r = {
-            let host = __get_group_coordinator(req.group, state, conn_pool, config, now)?;
+            let host = __get_group_coordinator(req.group, state, conn_pool, config, now).await?;
             debug!(
                 "fetch_group_offsets: sending request {:?} to: {}",
                 req, host
             );
-            __send_receive::<_, protocol::OffsetFetchResponse>(conn_pool, host, now, &req)?
+            __send_receive::<_, protocol::OffsetFetchResponse>(conn_pool, host, now, &req).await?
         };
 
         debug!("fetch_group_offsets: received response: {:#?}", r);
@@ -1460,22 +1524,23 @@ fn __fetch_group_offsets(
                     Ok(o) => {
                         partition_offsets.push(o);
                     }
-                    Err(Error(ErrorKind::Kafka(e @ KafkaCode::GroupLoadInProgress), _)) => {
-                        retry_code = Some(e);
-                        break 'rproc;
-                    }
-                    Err(Error(ErrorKind::Kafka(e @ KafkaCode::NotCoordinatorForGroup), _)) => {
-                        debug!(
-                            "fetch_group_offsets: resetting group coordinator for '{}'",
-                            req.group
-                        );
-                        state.remove_group_coordinator(&req.group);
-                        retry_code = Some(e);
-                        break 'rproc;
-                    }
                     Err(e) => {
-                        // ~ immeditaly abort with the error
-                        return Err(e);
+                        match e.kind() {
+                            KafkaErrorKind::Kafka(c @ KafkaErrorCode::GroupLoadInProgress) => {
+                                retry_code = Some(c);
+                                break 'rproc;
+                            },
+                            KafkaErrorKind::Kafka(e @ KafkaErrorCode::NotCoordinatorForGroup) => {
+                                debug!(
+                                    "fetch_group_offsets: resetting group coordinator for '{}'",
+                                    req.group
+                                );
+                                state.remove_group_coordinator(&req.group);
+                                retry_code = Some(e);
+                                break 'rproc;
+                            },
+                            _ =>   Err(e)?
+                        }
                     }
                 }
             }
@@ -1495,7 +1560,7 @@ fn __fetch_group_offsets(
                     attempt += 1;
                     __retry_sleep(config)
                 } else {
-                    bail!(ErrorKind::Kafka(e));
+                    Err(KafkaErrorKind::Kafka(e))?;
                 }
             }
             None => {
@@ -1506,11 +1571,11 @@ fn __fetch_group_offsets(
 }
 
 /// ~ carries out the given fetch requests and returns the response
-fn __fetch_messages(
+async fn __fetch_messages<'a, 'b>(
     conn_pool: &mut network::Connections,
     config: &ClientConfig,
-    reqs: HashMap<&str, protocol::FetchRequest>,
-) -> Result<Vec<fetch::Response>> {
+    reqs: HashMap<&str, protocol::FetchRequest<'a, 'b>>,
+) -> Result<Vec<fetch::Response>, KafkaError> {
     let now = Instant::now();
     let mut res = Vec::with_capacity(reqs.len());
     for (host, req) in reqs {
@@ -1518,27 +1583,27 @@ fn __fetch_messages(
             validate_crc: config.fetch_crc_validation,
             requests: Some(&req),
         };
-        res.push(__z_send_receive(conn_pool, host, now, &req, &p)?);
+        res.push(__z_send_receive(conn_pool, host, now, &req, &p).await?);
     }
     Ok(res)
 }
 
 /// ~ carries out the given produce requests and returns the response
-fn __produce_messages(
+async fn __produce_messages<'a, 'b>(
     conn_pool: &mut network::Connections,
-    reqs: HashMap<&str, protocol::ProduceRequest>,
+    reqs: HashMap<&str, protocol::ProduceRequest<'a, 'b>>,
     no_acks: bool,
-) -> Result<Vec<ProduceConfirm>> {
+) -> Result<Vec<ProduceConfirm>, KafkaError> {
     let now = Instant::now();
     if no_acks {
         for (host, req) in reqs {
-            __send_noack::<_, protocol::ProduceResponse>(conn_pool, host, now, req)?;
+            __send_noack::<_, protocol::ProduceResponse>(conn_pool, host, now, req).await?;
         }
         Ok(vec![])
     } else {
         let mut res: Vec<ProduceConfirm> = vec![];
         for (host, req) in reqs {
-            let resp = __send_receive::<_, protocol::ProduceResponse>(conn_pool, &host, now, req)?;
+            let resp = __send_receive::<_, protocol::ProduceResponse>(conn_pool, &host, now, req).await?;
             for tpo in resp.get_response() {
                 res.push(tpo);
             }
@@ -1547,43 +1612,44 @@ fn __produce_messages(
     }
 }
 
-fn __send_receive<T, V>(
+async fn __send_receive<T, V>(
     conn_pool: &mut network::Connections,
     host: &str,
     now: Instant,
     req: T,
-) -> Result<V::R>
+) -> Result<V::R, KafkaError>
 where
     T: ToByte,
     V: FromByte,
 {
-    __send_receive_conn::<T, V>(conn_pool.get_conn(host, now)?, req)
+    // can we map over futures instead of always awaiting them?
+    __send_receive_conn::<T, V>(conn_pool.get_conn(host, now).await?, req).await
 }
 
-fn __send_receive_conn<T, V>(conn: &mut network::KafkaConnection, req: T) -> Result<V::R>
+async fn __send_receive_conn<T, V>(conn: &mut network::KafkaConnection, req: T) -> Result<V::R, KafkaError>
 where
     T: ToByte,
     V: FromByte,
 {
-    __send_request(conn, req)?;
-    __get_response::<V>(conn)
+    __send_request(conn, req).await?;
+    __get_response::<V>(conn).await
 }
 
-fn __send_noack<T, V>(
+async fn __send_noack<T, V>(
     conn_pool: &mut network::Connections,
     host: &str,
     now: Instant,
     req: T,
-) -> Result<usize>
+) -> Result<usize, KafkaError>
 where
     T: ToByte,
     V: FromByte,
 {
-    let mut conn = conn_pool.get_conn(host, now)?;
-    __send_request(&mut conn, req)
+    let mut conn = conn_pool.get_conn(host, now).await?;
+    __send_request(&mut conn, req).await
 }
 
-fn __send_request<T: ToByte>(conn: &mut network::KafkaConnection, request: T) -> Result<usize> {
+async fn __send_request<T: ToByte>(conn: &mut network::KafkaConnection, request: T) -> Result<usize, KafkaError> {
     // ~ buffer to receive data to be sent
     let mut buffer = Vec::with_capacity(4);
     // ~ reserve bytes for the actual request size (we'll fill in that later)
@@ -1597,12 +1663,12 @@ fn __send_request<T: ToByte>(conn: &mut network::KafkaConnection, request: T) ->
     trace!("__send_request: Sending bytes: {:?}", &buffer);
 
     // ~ send the prepared buffer
-    conn.send(&buffer)
+    conn.send(&buffer).await
 }
 
-fn __get_response<T: FromByte>(conn: &mut network::KafkaConnection) -> Result<T::R> {
-    let size = __get_response_size(conn)?;
-    let resp = conn.read_exact_alloc(size as u64)?;
+async fn __get_response<T: FromByte>(conn: &mut network::KafkaConnection) -> Result<T::R, KafkaError> {
+    let size = __get_response_size(conn).await?;
+    let resp = conn.read_exact_alloc(size as u64).await?;
 
     trace!("__get_response: received bytes: {:?}", &resp);
 
@@ -1621,28 +1687,28 @@ fn __get_response<T: FromByte>(conn: &mut network::KafkaConnection) -> Result<T:
     T::decode_new(&mut Cursor::new(resp))
 }
 
-fn __z_send_receive<R, P>(
+async fn __z_send_receive<R, P>(
     conn_pool: &mut network::Connections,
     host: &str,
     now: Instant,
     req: R,
     parser: &P,
-) -> Result<P::T>
+) -> Result<P::T, KafkaError>
 where
     R: ToByte,
     P: ResponseParser,
 {
-    let mut conn = conn_pool.get_conn(host, now)?;
-    __send_request(&mut conn, req)?;
-    __z_get_response(&mut conn, parser)
+    let mut conn = conn_pool.get_conn(host, now).await?;
+    __send_request(&mut conn, req).await?;
+    __z_get_response(&mut conn, parser).await
 }
 
-fn __z_get_response<P>(conn: &mut network::KafkaConnection, parser: &P) -> Result<P::T>
+async fn __z_get_response<P>(conn: &mut network::KafkaConnection, parser: &P) -> Result<P::T, KafkaError>
 where
     P: ResponseParser,
 {
-    let size = __get_response_size(conn)?;
-    let resp = conn.read_exact_alloc(size as u64)?;
+    let size = __get_response_size(conn).await?;
+    let resp = conn.read_exact_alloc(size as u64).await?;
 
     // {
     //     use std::fs::OpenOptions;
@@ -1659,10 +1725,10 @@ where
     parser.parse(resp)
 }
 
-fn __get_response_size(conn: &mut network::KafkaConnection) -> Result<i32> {
+async fn __get_response_size(conn: &mut network::KafkaConnection) -> Result<i32, KafkaError> {
     let mut buf = [0u8; 4];
-    conn.read_exact(&mut buf)?;
-    i32::decode_new(&mut Cursor::new(&buf))
+    conn.read_exact(&mut buf).await?;
+    i32::decode_new(&mut Cursor::new(&buf)).into()
 }
 
 /// Suspends the calling thread for the configured "retry" time. This

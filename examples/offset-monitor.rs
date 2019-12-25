@@ -1,22 +1,22 @@
 extern crate env_logger;
 extern crate getopts;
 extern crate time;
-#[macro_use]
-extern crate error_chain;
 
+use failure::{Error, bail};
 use std::cmp;
 use std::env;
-use std::io::{self, stderr, stdout, BufWriter, Write};
+use std::io::{stderr, stdout, BufWriter, Write};
 use std::process;
 use std::thread;
 use std::time as stdtime;
 
-use kafka::client::{FetchOffset, GroupOffsetStorage, KafkaClient};
+use kafka_rust::client::{FetchOffset, GroupOffsetStorage, KafkaClient};
 
 /// A very simple offset monitor for a particular topic able to show
 /// the lag for a particular consumer group. Dumps the offset/lag of
 /// the monitored topic/group to stdout every few seconds.
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     macro_rules! abort {
@@ -33,15 +33,15 @@ fn main() {
         Err(e) => abort!(e),
     };
 
-    if let Err(e) = run(cfg) {
+    if let Err(e) = run(cfg).await {
         abort!(e);
     }
 }
 
-fn run(cfg: Config) -> Result<()> {
+async fn run(cfg: Config) -> Result<(), Error> {
     let mut client = KafkaClient::new(cfg.brokers.clone());
     client.set_group_offset_storage(cfg.offset_storage);
-    client.load_metadata_all()?;
+    client.load_metadata_all().await?;
 
     // ~ if no topic specified, print all available and be done.
     if cfg.topic.is_empty() {
@@ -74,7 +74,7 @@ fn run(cfg: Config) -> Result<()> {
     let mut first_time = true;
     loop {
         let t = time::now();
-        state.update_partitions(&mut client, &cfg.topic, &cfg.group)?;
+        state.update_partitions(&mut client, &cfg.topic, &cfg.group).await?;
         if first_time {
             state.curr_to_prev();
             first_time = false;
@@ -114,14 +114,14 @@ impl State {
         }
     }
 
-    fn update_partitions(
+    async fn update_partitions(
         &mut self,
         client: &mut KafkaClient,
         topic: &str,
         group: &str,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         // ~ get the latest topic offsets
-        let latests = client.fetch_topic_offsets(topic, FetchOffset::Latest)?;
+        let latests = client.fetch_topic_offsets(topic, FetchOffset::Latest).await?;
 
         for l in latests {
             let off = self
@@ -134,7 +134,7 @@ impl State {
 
         if !group.is_empty() {
             // ~ get the current group offsets
-            let groups = client.fetch_group_topic_offsets(group, topic)?;
+            let groups = client.fetch_group_topic_offsets(group, topic).await?;
             for g in groups {
                 let off = self
                     .offsets
@@ -192,7 +192,7 @@ impl<W: Write> Printer<W> {
         }
     }
 
-    fn print_head(&mut self, num_partitions: usize) -> Result<()> {
+    fn print_head(&mut self, num_partitions: usize) -> Result<(), Error> {
         self.out_buf.clear();
         {
             // ~ format
@@ -228,7 +228,7 @@ impl<W: Write> Printer<W> {
         }
     }
 
-    fn print_offsets(&mut self, time: &time::Tm, partitions: &[Partition]) -> Result<()> {
+    fn print_offsets(&mut self, time: &time::Tm, partitions: &[Partition]) -> Result<(), Error> {
         self.out_buf.clear();
         {
             // ~ format
@@ -308,7 +308,7 @@ struct Config {
 }
 
 impl Config {
-    fn from_cmdline() -> Result<Config> {
+    fn from_cmdline() -> Result<Config, Error> {
         let args: Vec<String> = env::args().collect();
         let mut opts = getopts::Options::new();
         opts.optflag("h", "help", "Print this help screen");
@@ -381,15 +381,5 @@ impl Config {
             summary: !m.opt_present("partitions"),
             diff: !m.opt_present("no-growth"),
         })
-    }
-}
-
-// --------------------------------------------------------------------
-
-error_chain! {
-    foreign_links {
-        Kafka(kafka::error::Error);
-        Io(io::Error);
-        Opt(getopts::Fail);
     }
 }

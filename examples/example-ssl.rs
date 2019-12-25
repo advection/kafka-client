@@ -1,8 +1,9 @@
 #[macro_use]
 extern crate log;
 
-fn main() {
-    example::main();
+#[tokio::main]
+async fn main() {
+    example::main().await;
 }
 
 #[cfg(feature = "security")]
@@ -15,9 +16,9 @@ mod example {
     use std::io::BufReader;
     use std::process;
 
-    use kafka::client::{FetchOffset, KafkaClient, SecurityConfig};
+    use kafka_rust::client::{FetchOffset, KafkaClient, SecurityConfig};
 
-    pub fn main() {
+    pub async fn main() {
         env_logger::init();
 
         // ~ parse the command line arguments
@@ -71,7 +72,7 @@ mod example {
         let mut client = KafkaClient::new_secure(cfg.brokers, SecurityConfig::new(rustls_config));
 
         // ~ communicate with the brokers
-        match client.load_metadata_all() {
+        match client.load_metadata_all().await {
             Err(e) => {
                 println!("{:?}", e);
                 drop(client);
@@ -89,7 +90,7 @@ mod example {
                     // the cluster our topics are spread over
 
                     let topics: Vec<String> = client.topics().names().map(Into::into).collect();
-                    match client.fetch_offsets(topics.as_slice(), FetchOffset::Latest) {
+                    match client.fetch_offsets(topics.as_slice(), FetchOffset::Latest).await {
                         Err(e) => {
                             println!("{:?}", e);
                             drop(client);

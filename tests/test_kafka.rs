@@ -1,5 +1,5 @@
 #[cfg(feature = "integration_tests")]
-extern crate kafka;
+extern crate kafka_rust;
 
 #[cfg(feature = "integration_tests")]
 extern crate rand;
@@ -13,7 +13,7 @@ extern crate env_logger;
 
 #[cfg(feature = "integration_tests")]
 mod integration {
-    use kafka::client::{GroupOffsetStorage, KafkaClient};
+    use kafka_rust::client::{GroupOffsetStorage, KafkaClient};
 
     mod client;
     mod consumer_producer;
@@ -25,11 +25,11 @@ mod integration {
     pub const TEST_TOPIC_PARTITIONS: [i32; 2] = [0, 1];
     pub const KAFKA_CONSUMER_OFFSETS_TOPIC_NAME: &str = "__consumer_offsets";
 
-    pub(crate) fn new_ready_kafka_client() -> KafkaClient {
+    pub(crate) async fn new_ready_kafka_client() -> KafkaClient {
         let hosts = vec![LOCAL_KAFKA_BOOTSTRAP_HOST.to_owned()];
         let mut client = KafkaClient::new(hosts);
         client.set_group_offset_storage(GroupOffsetStorage::Kafka);
-        client.load_metadata_all().unwrap();
+        client.load_metadata_all().await.unwrap();
         client
     }
 }

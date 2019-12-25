@@ -1,6 +1,6 @@
 # Kafka Rust Client
 
-[![Build Status](https://travis-ci.org/spicavigo/kafka-rust.svg?branch=master)](https://travis-ci.org/spicavigo/kafka-rust) [![](http://meritbadge.herokuapp.com/kafka)](https://crates.io/crates/kafka)
+[![Build Status](https://travis-ci.org/advection/kafka-client.svg?branch=master)](https://travis-ci.org/advection/kafka-client) 
 
 ### Documentation
 
@@ -44,7 +44,7 @@ repository](https://github.com/spicavigo/kafka-rust/tree/master/examples).
 ### Consumer
 
 This is a higher-level consumer API for Kafka and is provided by the
-module `kafka::consumer`. It provides convenient offset management
+module `kafka_rust::consumer`. It provides convenient offset management
 support on behalf of a specified group. This is the API a client
 application of this library wants to use for receiving messages from
 Kafka.
@@ -53,7 +53,7 @@ Kafka.
 ### Producer
 
 This is a higher-level producer API for Kafka and is provided by the
-module `kafka::producer`. It provides convenient automatic partition
+module `kafka_rust::producer`. It provides convenient automatic partition
 assignment capabilities through partitioners. This is the API a
 client application of this library wants to use for sending messsages
 to Kafka.
@@ -61,7 +61,7 @@ to Kafka.
 
 ### KafkaClient
 
-`KafkaClient` in the `kafka::client` module is the central point of
+`KafkaClient` in the `kafka_rust::client` module is the central point of
 this API. However, this is a mid-level abstraction for Kafka rather
 suitable for building higher-level APIs. Applications typically want
 to use the already mentioned `Consumer` and `Producer`.

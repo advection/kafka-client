@@ -9,24 +9,29 @@
 //!
 //! # Example
 //! ```no_run
-//! use kafka::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
+//! use kafka_rust::consumer::{Consumer, FetchOffset, GroupOffsetStorage};
 //!
-//! let mut consumer =
-//!    Consumer::from_hosts(vec!("localhost:9092".to_owned()))
-//!       .with_topic_partitions("my-topic".to_owned(), &[0, 1])
-//!       .with_fallback_offset(FetchOffset::Earliest)
-//!       .with_group("my-group".to_owned())
-//!       .with_offset_storage(GroupOffsetStorage::Kafka)
-//!       .create()
-//!       .unwrap();
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!    let mut consumer =
+//!        Consumer::from_hosts(vec!("localhost:9092".to_owned()))
+//!           .with_topic_partitions("my-topic".to_owned(), &[0, 1])
+//!           .with_fallback_offset(FetchOffset::Earliest)
+//!           .with_group("my-group".to_owned())
+//!           .with_offset_storage(GroupOffsetStorage::Kafka)
+//!           .create()
+//!           .await
+//!           .unwrap();
 //! loop {
-//!   for ms in consumer.poll().unwrap().iter() {
+//!   for ms in consumer.poll().await.unwrap().iter() {
 //!     for m in ms.messages() {
 //!       println!("{:?}", m);
 //!     }
 //!     consumer.consume_messageset(ms);
 //!   }
-//!   consumer.commit_consumed().unwrap();
+//!   consumer.commit_consumed().await.unwrap();
+//! }
+//! Ok(())
 //! }
 //! ```
 //!
@@ -40,7 +45,7 @@
 //! of the consumed topics. Individual messages are embedded in the
 //! retrieved messagesets and can be processed using the `messages()`
 //! iterator.  Due to this embedding, individual messsages's lifetime
-//! is bound to the `MessageSet` they are part of. Typically, client
+//! is bound to the `MessageSet` they are part of. Typically, client // zlb: interesting choice here to return a message set and not the iterator or sequence itself
 //! code access the raw data/bytes, parses it into custom data types
 //! and passes that for further processing within the application.
 //! Altough unconvenient, this helps in reducing the number of
@@ -66,13 +71,13 @@ use std::slice;
 
 use crate::client::fetch;
 use crate::client::{CommitOffset, FetchPartition, KafkaClient};
-use crate::error::{ErrorKind, KafkaCode, Result};
 
 // public re-exports
 pub use self::builder::Builder;
 pub use crate::client::fetch::Message;
 pub use crate::client::FetchOffset;
 pub use crate::client::GroupOffsetStorage;
+use crate::error::{KafkaErrorCode, KafkaErrorKind, KafkaError};
 
 mod assignment;
 mod builder;
@@ -153,8 +158,8 @@ impl Consumer {
     }
 
     /// Polls for the next available message data.
-    pub fn poll(&mut self) -> Result<MessageSets> {
-        let (n, resps) = self.fetch_messages();
+    pub async fn poll(&mut self) -> Result<MessageSets, KafkaError> {
+        let (n, resps) = self.fetch_messages().await;
         self.process_fetch_responses(n, resps?)
     }
 
@@ -170,8 +175,8 @@ impl Consumer {
         &self.config.group
     }
 
-    // ~ returns (number partitions queried, fecth responses)
-    fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>>) {
+    // ~ returns (number partitions queried, fetch responses)
+    async fn fetch_messages(&mut self) -> (u32, Result<Vec<fetch::Response>, KafkaError>) {
         // ~ if there's a retry partition ... fetch messages just for
         // that one. Otherwise try to fetch messages for all assigned
         // partitions.
@@ -179,12 +184,7 @@ impl Consumer {
             Some(tp) => {
                 let s = match self.state.fetch_offsets.get(&tp) {
                     Some(fstate) => fstate,
-                    None => {
-                        return (
-                            1,
-                            Err(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition).into()),
-                        )
-                    }
+                    None => return(1, Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into())) // zlb: why store the error in s, strange
                 };
                 let topic = self.state.topic_name(tp.topic_ref);
                 debug!(
@@ -196,7 +196,7 @@ impl Consumer {
                     self.client.fetch_messages_for_partition(
                         &FetchPartition::new(topic, tp.partition, s.offset)
                             .with_max_bytes(s.max_bytes),
-                    ),
+                    ).await,
                 )
             }
             None => {
@@ -212,7 +212,7 @@ impl Consumer {
                 });
                 (
                     state.fetch_offsets.len() as u32,
-                    client.fetch_messages(reqs),
+                    client.fetch_messages(reqs).await,
                 )
             }
         }
@@ -228,7 +228,7 @@ impl Consumer {
         &mut self,
         num_partitions_queried: u32,
         resps: Vec<fetch::Response>,
-    ) -> Result<MessageSets> {
+    ) -> Result<MessageSets, KafkaError> {
         let single_partition_consumer = self.single_partition_consumer();
         let mut empty = true;
         let retry_partitions = &mut self.state.retry_partitions;
@@ -254,10 +254,10 @@ impl Consumer {
                     // certain errors and retry the fetch operation
                     // transparently for the caller.
                     let data = match p.data() {
-                        // XXX need to prevent updating fetch_offsets in case we're gonna fail here
-                        Err(ref e) => return Err(e.clone()),
-                        Ok(ref data) => data,
+                        Ok(d) => d ,
+                        Err( e) => {  Err(KafkaErrorKind::Kafka(*e))? }
                     };
+                        // XXX need to prevent updating fetch_offsets in case we're gonna fail here
 
                     let mut fetch_state = self
                         .state
@@ -323,7 +323,7 @@ impl Consumer {
                                 // fetch size ... this is will fail
                                 // forever ... signal the problem to
                                 // the user
-                                bail!(ErrorKind::Kafka(KafkaCode::MessageSizeTooLarge));
+                                Err(KafkaErrorKind::Kafka(KafkaErrorCode::MessageSizeTooLarge))?;
                             }
                             // ~ if this consumer is subscribed to one
                             // partition only, there's no need to push
@@ -377,9 +377,9 @@ impl Consumer {
     ///
     /// Results in an error if the specified topic partition is not
     /// being consumed by this consumer.
-    pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<()> {
+    pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<(), KafkaError> {
         let topic_ref = match self.state.topic_ref(topic) {
-            None => bail!(ErrorKind::Kafka(KafkaCode::UnknownTopicOrPartition)),
+            None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
             Some(topic_ref) => topic_ref,
         };
         let tp = state::TopicPartition {
@@ -404,10 +404,10 @@ impl Consumer {
         Ok(())
     }
 
-    /// A convience method to mark the given message set consumed as a
+    /// A convenience method to mark the given message set consumed as a
     /// whole by the caller. This is equivalent to marking the last
     /// message of the given set as consumed.
-    pub fn consume_messageset<'a>(&mut self, msgs: MessageSet<'a>) -> Result<()> {
+    pub fn consume_messageset(&mut self, msgs: MessageSet) -> Result<(), KafkaError> {
         if !msgs.messages.is_empty() {
             self.consume_message(
                 msgs.topic,
@@ -424,7 +424,7 @@ impl Consumer {
     ///
     /// See also `Consumer::consume_message` and
     /// `Consumer::consume_messageset`.
-    pub fn commit_consumed(&mut self) -> Result<()> {
+    pub async fn commit_consumed(&mut self) -> Result<(), KafkaError> {
         if self.config.group.is_empty() {
             debug!("commit_consumed: ignoring commit request since no group defined");
             return Ok(());
@@ -451,7 +451,7 @@ impl Consumer {
                     // https://kafka.apache.org/090/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html
                     CommitOffset::new(topic, tp.partition, o.offset + 1)
                 }),
-        )?;
+        ).await?;
         for co in &mut state.consumed_offsets.values_mut() {
             if co.dirty {
                 co.dirty = false;

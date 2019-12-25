@@ -3,13 +3,14 @@ use std::convert::AsRef;
 use std::slice;
 use std::u32;
 
-use crate::error::Result;
 use crate::protocol;
+use crate::error::KafkaError;
 
 #[derive(Debug, Default)]
 pub struct ClientState {
     // ~ the last correlation used when communicating with kafka
     // (see `#next_correlation_id`)
+    // does this need to be atomic?
     correlation: i32,
 
     // ~ a list of known brokers referred to by the index in this
@@ -253,7 +254,7 @@ impl ClientState {
 
     /// Loads new and updates existing metadata from the given
     /// metadata response.
-    pub fn update_metadata(&mut self, md: protocol::MetadataResponse) -> Result<()> {
+    pub fn update_metadata(&mut self, md: protocol::MetadataResponse) -> Result<(), KafkaError> {
         debug!("updating metadata from: {:?}", md);
 
         // ~ register new brokers with self.brokers and obtain an

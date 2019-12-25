@@ -15,20 +15,25 @@
 //! ```no_run
 //! use std::fmt::Write;
 //! use std::time::Duration;
-//! use kafka::producer::{Producer, Record, RequiredAcks};
+//! use kafka_rust::producer::{Producer, Record, RequiredAcks};
 //!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut producer =
 //!     Producer::from_hosts(vec!("localhost:9092".to_owned()))
 //!         .with_ack_timeout(Duration::from_secs(1))
 //!         .with_required_acks(RequiredAcks::One)
 //!         .create()
+//!         .await
 //!         .unwrap();
 //!
 //! let mut buf = String::with_capacity(2);
 //! for i in 0..10 {
 //!   let _ = write!(&mut buf, "{}", i); // some computation of the message data to be sent
-//!   producer.send(&Record::from_value("my-topic", buf.as_bytes())).unwrap();
+//!   producer.send(&Record::from_value("my-topic", buf.as_bytes())).await.unwrap();
 //!   buf.clear();
+//! }
+//! Ok(())
 //! }
 //! ```
 //!
@@ -60,7 +65,7 @@
 // XXX 2) Handle recoverable errors behind the scenes through retry attempts
 
 use crate::client::{self, KafkaClient, SecurityConfig};
-use crate::error::{ErrorKind, Result};
+use crate::failure::Error;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{BuildHasher, BuildHasherDefault, Hasher};
@@ -73,6 +78,7 @@ use twox_hash::XxHash32;
 type SecurityConfig = ();
 use crate::client_internals::KafkaClientInternals;
 use crate::protocol;
+use crate::error::{KafkaErrorKind, KafkaError};
 
 // public re-exports
 pub use crate::client::{Compression, ProduceConfirm, ProducePartitionConfirm, RequiredAcks};
@@ -138,6 +144,7 @@ impl AsBytes for &str {
 /// specifying the target topic and optionally the topic's partition.
 pub struct Record<'a, K, V> {
     /// Key data of this (message) record.
+    // todo: the required fields should probably just be options.
     pub key: K,
 
     /// Value data of this (message) record.
@@ -252,12 +259,13 @@ impl Producer {
 
 impl<P: Partitioner> Producer<P> {
     /// Synchronously send the specified message to Kafka.
-    pub fn send<'a, K, V>(&mut self, rec: &Record<'a, K, V>) -> Result<()>
+    pub async fn send<'a, K, V>(&mut self, rec: &Record<'a, K, V>) -> Result<(), KafkaError>
     where
         K: AsBytes,
         V: AsBytes,
     {
-        let mut rs = self.send_all(slice::from_ref(rec))?;
+        // this is wrong, we shouldn't await here in the case of fire and forget below
+        let mut rs = self.send_all(slice::from_ref(rec)).await?;
 
         if self.config.required_acks == 0 {
             // ~ with no required_acks we get no response and
@@ -274,14 +282,14 @@ impl<P: Partitioner> Producer<P> {
                 .unwrap()
                 .offset
                 .map(|_| ())
-                .map_err(|err| ErrorKind::Kafka(err).into())
+                .map_err(|err| KafkaErrorKind::Kafka(err).into())
         }
     }
 
-    /// Synchronously send all of the specified messages to Kafka. To validate
+    /// Send all of the specified messages to Kafka. To validate
     /// that all of the specified records have been successfully delivered,
     /// inspection of the offsets on the returned confirms is necessary.
-    pub fn send_all<'a, K, V>(&mut self, recs: &[Record<'a, K, V>]) -> Result<Vec<ProduceConfirm>>
+    pub async fn send_all<'a, K, V>(&mut self, recs: &[Record<'a, K, V>]) -> Result<Vec<ProduceConfirm>, KafkaError>
     where
         K: AsBytes,
         V: AsBytes,
@@ -304,7 +312,7 @@ impl<P: Partitioner> Producer<P> {
                 partitioner.partition(Topics::new(partitions), &mut m);
                 m
             }),
-        )
+        ).await
     }
 }
 
@@ -319,7 +327,7 @@ fn to_option(data: &[u8]) -> Option<&[u8]> {
 // --------------------------------------------------------------------
 
 impl<P> State<P> {
-    fn new(client: &mut KafkaClient, partitioner: P) -> Result<State<P>> {
+    fn new(client: &mut KafkaClient, partitioner: P) -> Result<State<P>, Error> {
         let ts = client.topics();
         let mut ids = HashMap::with_capacity(ts.len());
         for t in ts {
@@ -459,7 +467,7 @@ impl<P> Builder<P> {
 
     /// Finally creates/builds a new producer based on the so far
     /// supplied settings.
-    pub fn create(self) -> Result<Producer<P>> {
+    pub async fn create(self) -> Result<Producer<P>, Error> {
         // ~ create the client if necessary
         let (mut client, need_metadata) = match self.client {
             Some(client) => (client, false),
@@ -480,7 +488,7 @@ impl<P> Builder<P> {
         };
         // ~ load metadata if necessary
         if need_metadata {
-            client.load_metadata_all()?;
+            client.load_metadata_all().await?;
         }
         // ~ create producer state
         let state = State::new(&mut client, self.partitioner)?;
