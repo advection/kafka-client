@@ -180,7 +180,7 @@ pub fn to_millis_i32(d: Duration) -> Result<i32, KafkaError> {
         .saturating_mul(1_000)
         .saturating_add(u64::from(d.subsec_millis()));
     if m > i32::MAX as u64 {
-        Err(KafkaErrorKind::InvalidDuration)?
+        Err(KafkaErrorKind::InvalidDuration.into())
     } else {
         Ok(m as i32)
     }

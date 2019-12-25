@@ -76,7 +76,6 @@ use twox_hash::XxHash32;
 #[cfg(feature = "security")]
 #[cfg(not(feature = "security"))]
 type SecurityConfig = ();
-use crate::client_internals::KafkaClientInternals;
 use crate::protocol;
 use crate::error::{KafkaErrorKind, KafkaError};
 
@@ -259,7 +258,7 @@ impl Producer {
 
 impl<P: Partitioner> Producer<P> {
     /// Synchronously send the specified message to Kafka.
-    pub async fn send<'a, K, V>(&mut self, rec: &Record<'a, K, V>) -> Result<(), KafkaError>
+    pub async fn send<K, V>(&mut self, rec: &Record<'_, K, V>) -> Result<(), KafkaError>
     where
         K: AsBytes,
         V: AsBytes,
@@ -289,7 +288,7 @@ impl<P: Partitioner> Producer<P> {
     /// Send all of the specified messages to Kafka. To validate
     /// that all of the specified records have been successfully delivered,
     /// inspection of the offsets on the returned confirms is necessary.
-    pub async fn send_all<'a, K, V>(&mut self, recs: &[Record<'a, K, V>]) -> Result<Vec<ProduceConfirm>, KafkaError>
+    pub async fn send_all<K, V>(&mut self, recs: &[Record<'_, K, V>]) -> Result<Vec<ProduceConfirm>, KafkaError>
     where
         K: AsBytes,
         V: AsBytes,

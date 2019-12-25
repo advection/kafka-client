@@ -222,7 +222,7 @@ impl Builder {
     pub async fn create(self) -> Result<Consumer, KafkaError> {
         // ~ fail immediately if there's no topic to be consumed
         if self.assignments.is_empty() {
-             Err(KafkaErrorKind::NoTopicsAssigned)?;
+             return Err(KafkaErrorKind::NoTopicsAssigned.into());
         }
         // ~ create the client if necessary
         let (mut client, need_metadata) = match self.client {

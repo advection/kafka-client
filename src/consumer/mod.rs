@@ -255,7 +255,7 @@ impl Consumer {
                     // transparently for the caller.
                     let data = match p.data() {
                         Ok(d) => d ,
-                        Err( e) => {  Err(KafkaErrorKind::Kafka(*e))? }
+                        Err( e) => {  return Err(KafkaErrorKind::Kafka(*e).into()) }
                     };
                         // XXX need to prevent updating fetch_offsets in case we're gonna fail here
 
@@ -323,7 +323,7 @@ impl Consumer {
                                 // fetch size ... this is will fail
                                 // forever ... signal the problem to
                                 // the user
-                                Err(KafkaErrorKind::Kafka(KafkaErrorCode::MessageSizeTooLarge))?;
+                                return Err(KafkaErrorKind::Kafka(KafkaErrorCode::MessageSizeTooLarge).into())
                             }
                             // ~ if this consumer is subscribed to one
                             // partition only, there's no need to push
@@ -379,7 +379,7 @@ impl Consumer {
     /// being consumed by this consumer.
     pub fn consume_message(&mut self, topic: &str, partition: i32, offset: i64) -> Result<(), KafkaError> {
         let topic_ref = match self.state.topic_ref(topic) {
-            None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
+            None => return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into()),
             Some(topic_ref) => topic_ref,
         };
         let tp = state::TopicPartition {

@@ -14,7 +14,7 @@ pub fn compress(src: &[u8]) -> io::Result<Vec<u8>> {
             buf.truncate(len);
             buf
         })
-        .map_err(|err| from_snap_error_ref(&err).into() )
+        .map_err(|err| from_snap_error_ref(&err) )
 }
 
 
@@ -61,21 +61,21 @@ const MAGIC: &[u8] = &[0x82, b'S', b'N', b'A', b'P', b'P', b'Y', 0];
 fn validate_stream(mut stream: &[u8]) -> io::Result<&[u8]> {
     // ~ check the "header magic"
     if stream.len() < MAGIC.len() {
-        Err(io::Error::from(io::ErrorKind::UnexpectedEof))? // zlb: I get it, lots of intos
+        return Err(io::Error::from(io::ErrorKind::UnexpectedEof))
     }
     if &stream[..MAGIC.len()] != MAGIC {
-        Err(from_snap_error_ref(&snap::Error::Header))?
+        return Err(from_snap_error_ref(&snap::Error::Header))
     }
     stream = &stream[MAGIC.len()..];
     // ~ let's be assertive and (for the moment) restrict ourselves to
     // version == 1 and compatibility == 1.
     let version: i32 = next_i32!(stream)?;
     if version != 1 {
-        Err(from_snap_error_ref(&snap::Error::Header))?
+        return Err(from_snap_error_ref(&snap::Error::Header))
     }
     let compat: i32 = next_i32!(stream)?;
     if compat != 1 {
-        Err(from_snap_error_ref(&snap::Error::Header))?
+        return Err(from_snap_error_ref(&snap::Error::Header))
     }
     Ok(stream)
 }
@@ -175,10 +175,10 @@ impl<'a> SnappyReader<'a> {
         while !self.compressed_data.is_empty() {
              match next_i32!(self.compressed_data) {
                  Ok(chunk_size) if chunk_size <= 0 => {
-                     Err(snap::Error::UnsupportedChunkLength {
+                     return Err(snap::Error::UnsupportedChunkLength {
                          len: chunk_size as u64,
                          header: false,
-                     })?;
+                     }.into());
                  }
                  Ok(chunk_size) => {
                      let (c1, c2) = self.compressed_data.split_at(chunk_size as usize);

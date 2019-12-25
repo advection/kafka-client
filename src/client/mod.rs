@@ -26,7 +26,6 @@ use super::codecs::{FromByte, ToByte};
 use super::error::{KafkaErrorCode, KafkaErrorKind};
 use super::protocol::{self, ResponseParser};
 
-use crate::client_internals::KafkaClientInternals;
 use crate::error::KafkaError;
 
 pub mod metadata;
@@ -838,7 +837,7 @@ impl KafkaClient {
                 }
             }
         }
-        Err(KafkaErrorKind::NoHostReachable)?
+        Err(KafkaErrorKind::NoHostReachable.into())
     }
 
     /// Fetch offsets for a list of topics
@@ -979,7 +978,7 @@ impl KafkaClient {
         let mut m = self.fetch_offsets(&[topic], offset).await?;
         let offs = m.remove(topic).unwrap_or_default();
         if offs.is_empty() {
-            return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into() )
+            Err(KafkaErrorCode::UnknownTopicOrPartition.into())
         } else {
             Ok(offs)
         }
@@ -1099,9 +1098,9 @@ impl KafkaClient {
     /// Fetch messages from a single kafka partition.
     ///
     /// See `KafkaClient::fetch_messages`.
-    pub async fn fetch_messages_for_partition<'a>(
+    pub async fn fetch_messages_for_partition(
         &mut self,
-        req: &FetchPartition<'a>,
+        req: &FetchPartition<'_>,
     ) -> Result<Vec<fetch::Response>, KafkaError> {
         self.fetch_messages(&[req]).await
     }
@@ -1204,7 +1203,7 @@ impl KafkaClient {
             if self.state.contains_topic_partition(o.topic, o.partition) {
                 req.add(o.topic, o.partition, o.offset, "");
             } else {
-                Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?
+                return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into())
             }
         }
         if req.topic_partitions.is_empty() {
@@ -1320,7 +1319,7 @@ impl KafkaClient {
         );
 
         match self.state.partitions_for(topic) {
-            None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
+            None => return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into()),
             Some(tp) => {
                 for (id, _) in tp {
                     req.add(topic, id);
@@ -1354,7 +1353,7 @@ impl KafkaClient {
         for msg in messages {
             let msg = msg.as_ref();
             match state.find_broker(msg.topic, msg.partition) {
-                None => Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?,
+                None => return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into()),
                 Some(broker) => reqs
                     .entry(broker)
                     .or_insert_with(|| {
@@ -1373,7 +1372,7 @@ impl KafkaClient {
     }
 }
 
-async fn __get_group_coordinator<'a>(
+async fn __get_group_coordinator<'a>( // clippy seems to think this can be remove but I can't get it to compile without it
     group: &str,
     state: &'a mut state::ClientState,
     conn_pool: &mut network::Connections,
@@ -1382,16 +1381,17 @@ async fn __get_group_coordinator<'a>(
 ) -> Result<&'a str, KafkaError> {
     if let Some(host) = state.group_coordinator(group) {
         // ~ decouple the lifetimes to make borrowck happy;
-        // this is actually safe since we're immediatelly
+        // this is actually safe since we're immediately
         // returning this, so the follow up code is not
         // affected here
+//        return Ok(host);
         return Ok(unsafe { mem::transmute(host) });
     }
     let correlation_id = state.next_correlation_id();
     let req = protocol::GroupCoordinatorRequest::new(group, correlation_id, &config.client_id);
     let mut attempt = 1;
     loop {
-        // ~ idealy we'd make this work even if `load_metadata` has not
+        // ~ ideally we'd make this work even if `load_metadata` has not
         // been called yet; if there are no connections available we can
         // try connecting to the user specified bootstrap server similar
         // to the way `load_metadata` works.
@@ -1423,7 +1423,7 @@ async fn __get_group_coordinator<'a>(
             attempt += 1;
             __retry_sleep(config);
         } else {
-            Err(KafkaErrorKind::Kafka(retry_code))?;
+            return Err(KafkaErrorKind::Kafka(retry_code).into());
         }
     }
 }
@@ -1469,7 +1469,7 @@ async fn __commit_offsets<'a, 'b>(
                     }
                     Some(code) => {
                         // ~ immediately abort with the error
-                        Err(KafkaErrorKind::Kafka(code))?;
+                        return Err(KafkaErrorKind::Kafka(code).into());
                     }
                 }
             }
@@ -1539,7 +1539,7 @@ async fn __fetch_group_offsets<'a, 'b, 'c>(
                                 retry_code = Some(e);
                                 break 'rproc;
                             },
-                            _ =>   Err(e)?
+                            _ =>   return Err(e)
                         }
                     }
                 }
@@ -1560,7 +1560,7 @@ async fn __fetch_group_offsets<'a, 'b, 'c>(
                     attempt += 1;
                     __retry_sleep(config)
                 } else {
-                    Err(KafkaErrorKind::Kafka(e))?;
+                    return Err(KafkaErrorKind::Kafka(e).into());
                 }
             }
             None => {
@@ -1728,7 +1728,7 @@ where
 async fn __get_response_size(conn: &mut network::KafkaConnection) -> Result<i32, KafkaError> {
     let mut buf = [0u8; 4];
     conn.read_exact(&mut buf).await?;
-    i32::decode_new(&mut Cursor::new(&buf)).into()
+    i32::decode_new(&mut Cursor::new(&buf))
 }
 
 /// Suspends the calling thread for the configured "retry" time. This

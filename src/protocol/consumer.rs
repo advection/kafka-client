@@ -208,7 +208,7 @@ impl PartitionOffsetFetchResponse {
                     offset: -1,
                 })
             }
-            Some(e) => Err(KafkaErrorKind::Kafka(e))?,
+            Some(e) => Err(KafkaErrorKind::Kafka(e).into()),
             None => Ok(PartitionOffset {
                 partition: self.partition,
                 offset: self.offset,

@@ -409,9 +409,9 @@ impl<'a> MessageSet<'a> {
                         KafkaErrorKind::IoError(io) => match io.kind() {
                             //todo: need to make sure this code gets tested
                             io::ErrorKind::UnexpectedEof => break,
-                            _ => Err(KafkaErrorKind::IoError(io))?
+                            _ => return Err(KafkaErrorKind::IoError(io).into())
                         }
-                        _ => Err(e)?
+                        _ => return Err(e)
                     }
                 },
                 Ok((offset, pmsg)) => {
@@ -432,7 +432,7 @@ impl<'a> MessageSet<'a> {
                         // XXX handle recursive compression in future
                         #[cfg(feature = "gzip")]
                         c if c == Compression::GZIP as i8 => {
-                            let v = gzip::uncompress(pmsg.value).map_err(|e| KafkaErrorKind::IoError(e))?;
+                            let v = gzip::uncompress(pmsg.value).map_err(KafkaErrorKind::IoError)?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
                         #[cfg(feature = "snappy")]
@@ -441,10 +441,10 @@ impl<'a> MessageSet<'a> {
                             let mut v = Vec::new();
                             // todo: zlb seems like we should cache the reader instead of creating it on each invocation
                             let mut reader = SnappyReader::new(pmsg.value)?;
-                            reader.read_to_end(&mut v).map_err(|e| KafkaErrorKind::IoError(e))?;
+                            reader.read_to_end(&mut v).map_err( KafkaErrorKind::IoError)?;
                             return Ok(MessageSet::from_vec(v, req_offset, validate_crc)?);
                         }
-                        _ => Err(KafkaErrorKind::UnsupportedCompression)?,
+                        _ => return Err(KafkaErrorKind::UnsupportedCompression.into()),
                     }
                 }
             };
@@ -482,13 +482,13 @@ impl<'a> ProtocolMessage<'a> {
         // ~ optionally validate the crc checksum
         let msg_crc = r.read_i32()?;
         if validate_crc && (to_crc(r.rest()) as i32) != msg_crc {
-            Err(KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage))?;
+            return Err(KafkaErrorKind::Kafka(KafkaErrorCode::CorruptMessage).into());
         }
         // ~ we support parsing only messages with the "zero"
         // magic_byte; this covers kafka 0.8 and 0.9.
         let msg_magic = r.read_i8()?;
         if msg_magic != 0 {
-            Err(KafkaErrorKind::UnsupportedProtocol)?;
+            return Err(KafkaErrorKind::UnsupportedProtocol.into());
         }
         let msg_attr = r.read_i8()?;
         let msg_key = r.read_bytes()?;

@@ -175,7 +175,7 @@ fn determine_partitions<'a>(
                          (all metadata: {:?})",
                         topic, p, metadata
                     );
-                    Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition))?;
+                    return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into());
                 }
                 Some(_) => ps.push(p),
             };

@@ -249,8 +249,8 @@ mod tlsed {
     use super::IsSecured;
 
     pub enum KafkaStream {
-        Plain(TcpStream),
-        Ssl(TlsStream<TcpStream>),
+        Plain(Box<TcpStream>),
+        Ssl(Box<TlsStream<TcpStream>>),
     }
 
     impl IsSecured for KafkaStream {
@@ -270,24 +270,18 @@ mod tlsed {
             }
         }
 
-        fn get_mut(&mut self) -> &TcpStream {
+        /*fn get_mut(&mut self) -> &TcpStream {
             match *self {
                 KafkaStream::Plain(ref mut s) => s,
                 KafkaStream::Ssl(ref mut s) => s.get_mut().0 // possible to unpack as part of the match?
             }
-        }
+        }*/
 
         pub fn shutdown(&mut self, how: Shutdown) -> io::Result<()> {
             self.get_ref().shutdown(how)
         }
 
         //    impl Read for KafkaStream {
-        pub async fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            match *self {
-                KafkaStream::Plain(ref mut s) => s.read(buf).await,
-                KafkaStream::Ssl(ref mut s) => s.get_mut().0.read(buf).await // why can't I use get_mut on itself here instead...
-            }
-        }
         pub async fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             match *self {
                 KafkaStream::Plain(ref mut s) => s.read_exact(buf).await,
@@ -349,7 +343,7 @@ impl KafkaConnection {
     pub async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), KafkaError> {
         let r = (&mut self.stream).read_exact(buf).await.map_err(From::from);
         trace!("Read {} bytes from: {:?} => {:?}", buf.len(), self, r);
-        r.map( |_| { () } )
+        r.map( |_| { } )
     }
 
     pub async fn read_exact_alloc(&mut self, size: u64) -> Result<Vec<u8>, KafkaError> {
@@ -392,12 +386,12 @@ impl KafkaConnection {
     async fn new(
         id: u32,
         host: &str,
-        rw_timeout: Option<Duration>,
+        _rw_timeout: Option<Duration>,
         security: Option<SecurityConfig>,
     ) -> Result<KafkaConnection, KafkaError> {
         let socket = TcpStream::connect(host).await?;
         let stream = match security {
-            None => KafkaStream::Plain(socket),
+            None => KafkaStream::Plain(Box::new(socket)),
             Some(security_config) => {
                 let domain = match host.rfind(':') {
                     None => host,
@@ -406,7 +400,7 @@ impl KafkaConnection {
                 let dns_name = webpki::DNSNameRef::try_from_ascii_str(domain).unwrap();
                 let connector = TlsConnector::from(security_config.rustls_config);
                 let tls_stream = connector.connect(dns_name, socket).await?;
-                KafkaStream::Ssl(tokio_rustls::TlsStream::from(tls_stream))
+                KafkaStream::Ssl(Box::new(tokio_rustls::TlsStream::from(tls_stream)))
             }
         };
         KafkaConnection::from_stream(stream, id, host)

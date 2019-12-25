@@ -381,23 +381,23 @@ impl From<Context<KafkaErrorKind>> for KafkaError {
 impl Clone for KafkaErrorKind {
     fn clone(&self) -> KafkaErrorKind {
         match self {
-            KafkaErrorKind::IoError(ref err) => KafkaErrorKind::IoError(clone_ioe(err)).into(),
-            KafkaErrorKind::Kafka(x) => KafkaErrorKind::Kafka(x.clone()).into(),
+            KafkaErrorKind::IoError(ref err) => KafkaErrorKind::IoError(clone_ioe(err)),
+            KafkaErrorKind::Kafka(x) => KafkaErrorKind::Kafka(*x),
             KafkaErrorKind::TopicPartitionError{ ref topic_name, partition_id, error_code} => {
                 KafkaErrorKind::TopicPartitionError {
                     topic_name: topic_name.clone(),
-                    partition_id: partition_id.clone(),
-                    error_code: error_code.clone()
-                }.into()
+                    partition_id: *partition_id,
+                    error_code: *error_code
+                }
             }
-            KafkaErrorKind::UnsupportedProtocol => KafkaErrorKind::UnsupportedProtocol.into(),
-            KafkaErrorKind::UnsupportedCompression => KafkaErrorKind::UnsupportedCompression.into(),
-            KafkaErrorKind::CodecError => KafkaErrorKind::CodecError.into(),
-            KafkaErrorKind::StringDecodeError => KafkaErrorKind::StringDecodeError.into(),
-            KafkaErrorKind::NoHostReachable => KafkaErrorKind::NoHostReachable.into(),
-            KafkaErrorKind::NoTopicsAssigned => KafkaErrorKind::NoTopicsAssigned.into(),
-            KafkaErrorKind::InvalidDuration => KafkaErrorKind::InvalidDuration.into(),
-            KafkaErrorKind::Msg(ref msg) => KafkaErrorKind::Msg(msg.clone()).into(),
+            KafkaErrorKind::UnsupportedProtocol => KafkaErrorKind::UnsupportedProtocol,
+            KafkaErrorKind::UnsupportedCompression => KafkaErrorKind::UnsupportedCompression,
+            KafkaErrorKind::CodecError => KafkaErrorKind::CodecError,
+            KafkaErrorKind::StringDecodeError => KafkaErrorKind::StringDecodeError,
+            KafkaErrorKind::NoHostReachable => KafkaErrorKind::NoHostReachable,
+            KafkaErrorKind::NoTopicsAssigned => KafkaErrorKind::NoTopicsAssigned,
+            KafkaErrorKind::InvalidDuration => KafkaErrorKind::InvalidDuration,
+            KafkaErrorKind::Msg(ref msg) => KafkaErrorKind::Msg(msg.clone()),
             KafkaErrorKind::TLSError(e) => KafkaErrorKind::TLSError(e.clone())
         }
     }

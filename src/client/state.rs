@@ -227,7 +227,7 @@ impl ClientState {
         &self.topic_partitions
     }
 
-    pub fn partitions_for<'a>(&'a self, topic: &str) -> Option<&'a TopicPartitions> {
+    pub fn partitions_for(&self, topic: &str) -> Option<&TopicPartitions> {
         self.topic_partitions.get(topic)
     }
 
@@ -236,7 +236,7 @@ impl ClientState {
         self.correlation
     }
 
-    pub fn find_broker<'a>(&'a self, topic: &str, partition_id: i32) -> Option<&'a str> {
+    pub fn find_broker(&self, topic: &str, partition_id: i32) -> Option<&str> {
         self.topic_partitions
             .get(topic)
             .and_then(|tp| tp.partition(partition_id))
@@ -339,7 +339,7 @@ impl ClientState {
 
     /// ~ Retrieves the host:port of the coordinator for the specified
     /// group - if any.
-    pub fn group_coordinator<'a>(&'a self, group: &str) -> Option<&'a str> {
+    pub fn group_coordinator(&self, group: &str) -> Option<&str> {
         self.group_coordinators
             .get(group)
             .and_then(|b| self.brokers.get(b.index()))

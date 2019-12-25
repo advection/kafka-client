@@ -11,15 +11,15 @@ use crate::error::{KafkaErrorKind, KafkaError};
 macro_rules! try_usize_to_int {
 // ~ $ttype should actually be a 'ty' ... but rust complains for
 // some reason :/
-($value:expr, $ttype:ident) => {{
-let maxv = $ ttype::max_value();
-let x: usize = $ value;
-if (x as u64) <= (maxv as u64) {
-x as $ ttype
-} else {
-Err(KafkaErrorKind::CodecError)?
-}
-}};
+    ($value:expr, $ttype:ident) => {{
+        let maxv = $ ttype::max_value();
+        let x: usize = $ value;
+        if (x as u64) <= (maxv as u64) {
+            x as $ ttype
+        } else {
+            return Err(KafkaErrorKind::CodecError.into())
+        }
+    }};
 }
 
 pub trait ToByte {
@@ -119,7 +119,7 @@ where
     W: Write,
 {
     let l = try_usize_to_int!(xs.len(), i32);
-    buffer.write_i32::<BigEndian>(l).map_err(|e| KafkaErrorKind::IoError(e))?;
+    buffer.write_i32::<BigEndian>(l).map_err( KafkaErrorKind::IoError)?;
     for x in xs {
         f(buffer, x)?;
     }
@@ -203,7 +203,7 @@ impl FromByte for String {
             return Ok(());
         }
         self.reserve(length as usize);
-        let _ = buffer.take(length as u64).read_to_string(self).map_err(|e| KafkaErrorKind::IoError(e))?;
+        let _ = buffer.take(length as u64).read_to_string(self).map_err( KafkaErrorKind::IoError)?;
         if self.len() != length as usize {
             Err(KafkaErrorKind::IoError(io::ErrorKind::UnexpectedEof.into()).into()) // zlb: I get it, lots of intos
         } else { Ok(()) }
@@ -246,10 +246,10 @@ impl FromByte for Vec<u8> {
         self.reserve(length as usize);
         let size = buffer.take(length as u64)
             .read_to_end(self)
-            .map_err(|e| KafkaError::from(e))?;
+            .map_err(KafkaError::from)?;
 
         if size < length as usize {
-            Err(KafkaError::from(io::Error::from(io::ErrorKind::UnexpectedEof)))?
+            Err(KafkaError::from(io::Error::from(io::ErrorKind::UnexpectedEof)))
         } else {
             Ok(())
         }
