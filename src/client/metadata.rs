@@ -240,7 +240,7 @@ impl<'a> IntoIterator for Partitions<'a> {
     }
 }
 
-/// An interator over a topic's partitions.
+/// An iterator over a topic's partitions.
 pub struct PartitionIter<'a> {
     state: &'a ClientState,
     iter: TopicPartitionIter<'a>,

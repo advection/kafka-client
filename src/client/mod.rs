@@ -30,6 +30,7 @@ use crate::error::KafkaError;
 
 pub mod metadata;
 mod state;
+mod accumulator;
 
 // ~ re-export (only) certain types from the protocol::fetch module as
 // 'client::fetch'.
@@ -1370,6 +1371,42 @@ impl KafkaClient {
         }
         __produce_messages(&mut self.conn_pool, reqs, required_acks == 0).await
     }
+
+/*    pub async fn internal_produce_to_broker<'a, 'b>(
+        &mut self,
+        required_acks: i16,
+        ack_timeout: i32,
+        batch: Batch<'b, 'a>,
+    ) -> Result<Vec<ProduceConfirm>, KafkaError>
+        where
+            J: AsRef<ProduceMessage<'a, 'b>>,
+    {
+        let state = &mut self.state;
+        let correlation = state.next_correlation_id();
+
+        // ~ map topic and partition to the corresponding brokers
+        let config = &self.config;
+        let mut reqs: HashMap<&str, protocol::ProduceRequest> = HashMap::new();
+        for msg in messages {
+            let msg = msg.as_ref();
+            match state.find_broker(msg.topic, msg.partition) {
+                None => return Err(KafkaErrorKind::Kafka(KafkaErrorCode::UnknownTopicOrPartition).into()),
+                Some(broker) => reqs
+                    .entry(broker)
+                    .or_insert_with(|| {
+                        protocol::ProduceRequest::new(
+                            required_acks,
+                            ack_timeout,
+                            correlation,
+                            &config.client_id,
+                            config.compression,
+                        )
+                    })
+                    .add(msg.topic, msg.partition, msg.key, msg.value),
+            }
+        }
+        __produce_messages(&mut self.conn_pool, reqs, required_acks == 0).await
+    }*/
 }
 
 async fn __get_group_coordinator<'a>( // clippy seems to think this can be remove but I can't get it to compile without it
